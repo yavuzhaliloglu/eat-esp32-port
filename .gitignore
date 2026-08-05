@@ -1,0 +1,15 @@
+# ESP-IDF build ciktilari (yeniden uretilir: idf.py build)
+esp32-port/build/
+esp32-port/.cache/
+esp32-port/managed_components/
+esp32-port/dependencies.lock
+esp32-port/.vscode/
+
+# Web / Vercel - sirlar/token'lar burada olabilir
+web-ble/.vercel/
+web-ble/.env*
+node_modules/
+
+# Editor / OS
+.DS_Store
+*.swp

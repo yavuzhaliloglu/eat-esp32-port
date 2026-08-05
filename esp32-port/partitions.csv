@@ -1,0 +1,15 @@
+# Name,          Type, SubType, Offset,   Size,     Flags
+# meter_port flash haritasi - dev branch'teki defines.h'deki ASCII tablodan
+# (Program->SerialNumber->LoadProfile->Threshold->ResetDates->AmplitudeChange)
+# ESP-IDF partition table'ina uyarlandi. Butun veri partition'lari 4KB
+# sektorlerin tam kati (esp_partition_erase_range gereksinimi).
+nvs,              data, nvs,     0x9000,   0x6000,
+phy_init,         data, phy,     0xf000,   0x1000,
+factory,          app,  factory, 0x10000,  0x100000,
+serial_num,       data, 0x40,    ,         0x1000,
+lp_sector,        data, 0x40,    ,         0x1000,
+load_profile,     data, 0x40,    ,         0xC000,
+threshold_prm,    data, 0x40,    ,         0x1000,
+threshold_rec,    data, 0x40,    ,         0x10000,
+reset_dates,      data, 0x40,    ,         0x1000,
+amp_change,       data, 0x40,    ,         0x64000,

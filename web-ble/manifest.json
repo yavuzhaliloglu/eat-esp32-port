@@ -1,0 +1,11 @@
+{
+  "name": "Mavi Alp BLE İzleme",
+  "short_name": "Mavi Alp BLE",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,0 +1,34 @@
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# Konsol/log ciktisini SADECE USB-Serial-JTAG'e yonlendir.
+# Varsayilan UART0 konsolu GPIO20/21'i kullaniyor - ama bu pinler kartimizda
+# RS485 donusturucusune bagli. UART0 konsolu acik kalirsa, gercek RS485
+# haberlesmesi kurulunca sistem log mesajlariyla ayni tele cikip cakisabilir.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Ozel partition table (flash_test'te oldugu gibi) - spiflash.h icin gerekli
+# veri partition'larini tanimliyor (load profile, threshold, reset kayitlari vs.)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# app_main stack boyutu varsayilan 3584 byte - ama setProgramStartDate()
+# gibi fonksiyonlar tek basina 4096 byte'lik yerel dizi kullaniyor (dev'in
+# kendi tasarimi, tum bir flash sektorunu RAM'de tutup geri yaziyor). Stack
+# tasmasini onlemek icin buyutuldu.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# FreeRTOS tick hizi 100Hz (varsayilan) -> 1000Hz (1ms tick). ADCSampleTask
+# (main.c) periyodik olarak kisa sureli vTaskDelay(1) ile CPU'yu diger
+# gorevlere birakiyor - 100Hz'de bu 10ms'lik bloklar olurdu (ornekleme hizini
+# gereksiz yere dusururdu), 1000Hz'de 1ms'lik ince taneli bloklar oluyor,
+# hem diger gorevler (UART/LED/RTC) aç bırakılmıyor hem ornekleme hizi makul
+# kaliyor.
+CONFIG_FREERTOS_HZ=1000
+
+# BLE (NimBLE) - Asama 4: sahadaki teknisyenin telefonundan durum/veri
+# okuyabilmesi icin. ble_meter_test'teki dogrulanmis ayarlarla ayni.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=n
