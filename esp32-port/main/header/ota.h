@@ -32,6 +32,13 @@ bool ota_write_chunk(const uint8_t *data, uint16_t len);
 // ve kisa bir gecikmeyle (BLE bildirimi ulassin diye) cihazi resetler.
 bool ota_finish(void);
 
+// Yarim kalan bir guncellemeyi TEMIZ sekilde iptal eder (esp_ota_abort) -
+// BLE baglantisi transfer sirasinda koparsa (kullanici iptal etsin ya da
+// sinyal gitsin fark etmez) cagrilir. Bu cagrilmazsa ota_begin() bir dahaki
+// sefere "zaten devam ediyor" diyip reddederdi - cihaz resetlenene kadar
+// yeni bir guncelleme denemesi YAPILAMAZDI (bulunup duzeltilen gercek hata).
+void ota_abort(void);
+
 // Su anki durumu okunabilir bir metin olarak dondurur: "IDLE", "WRITING:45%%",
 // "SUCCESS_REBOOTING", "ERROR:<sebep>" gibi. BLE'nin durum characteristic'i
 // bunu okuyor.

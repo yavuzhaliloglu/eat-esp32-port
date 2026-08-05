@@ -146,6 +146,19 @@ bool ota_finish(void)
     return true;
 }
 
+void ota_abort(void)
+{
+    if (!s_in_progress)
+    {
+        return;
+    }
+
+    ESP_LOGW(TAG, "OTA yarida kesildi (baglanti koptu/iptal edildi), temizleniyor...");
+    esp_ota_abort(s_ota_handle);
+    s_in_progress = false;
+    snprintf(s_status_buf, sizeof(s_status_buf), "IDLE");
+}
+
 const char *ota_get_status_str(void)
 {
     return s_status_buf;
