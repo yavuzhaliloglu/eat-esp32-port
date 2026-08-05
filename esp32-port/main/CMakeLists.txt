@@ -8,8 +8,9 @@ idf_component_register(SRCS "main.c"
                              "src/spiflash.c"
                              "src/uart.c"
                              "src/adc.c"
+                             "src/ota.c"
                              "ble/src/gap.c"
                              "ble/src/gatt_svc.c"
                              "ble/src/meter_data_real.c"
                        INCLUDE_DIRS "." "ble/include"
-                       PRIV_REQUIRES esp_driver_uart esp_driver_i2c esp_partition esp_driver_gpio esp_adc esp_timer bt nvs_flash)
+                       PRIV_REQUIRES esp_driver_uart esp_driver_i2c esp_partition esp_driver_gpio esp_adc esp_timer bt nvs_flash app_update)

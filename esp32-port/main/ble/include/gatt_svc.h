@@ -18,6 +18,7 @@
 void send_vrms_indication(void);
 void send_vrms_instant_indication(void);
 void send_status_indication(void);
+void send_ota_status_indication(void);
 void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg);
 void gatt_svr_subscribe_cb(struct ble_gap_event *event);
 void gatt_svr_reset_subscriptions(void);

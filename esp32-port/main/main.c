@@ -17,6 +17,7 @@
 #include "header/spiflash.h"
 #include "header/uart.h"
 #include "header/adc.h"
+#include "header/ota.h"
 
 // Asama 4 (BLE): ble/include altindaki dosyalar. ⚠️ common.h buraya
 // BILEREK include EDILMIYOR - "#define TAG ..." icerdigi icin, bu dosyanin
@@ -863,6 +864,13 @@ void app_main(void)
     // ayakta, BLE basarisiz olsa bile (init_ble() kendi icinde hata
     // loglayip erken donuyor) geri kalan sistem calismaya devam eder.
     init_ble();
+
+    // BLE uzerinden firmware guncelleme (OTA) - rollback korumasi acik
+    // (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y). Buraya kadar hicbir sey
+    // cokmeden gelebildiysek, bu firmware "saglikli" - rollback iptal
+    // ediliyor. Bu cagrilmazsa, bootloader bir sonraki resette otomatik
+    // olarak bir onceki (OTA'dan once calisan) yazilima geri doner.
+    ota_mark_valid();
 
     ESP_LOGI(TAG, "Tum gorevler olusturuldu. app_main donuyor, scheduler (ESP-IDF) zaten calisiyor.");
 }

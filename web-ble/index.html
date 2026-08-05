@@ -358,6 +358,38 @@
     gap: 10px;
     flex-wrap: wrap;
   }
+
+  /* --- Firmware guncelleme (OTA) --- */
+  .ota-file-picker {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    margin-bottom: 14px;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    background: var(--card-bg);
+  }
+  .ota-file-picker.has-file { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .ota-progress-outer {
+    width: 100%;
+    height: 14px;
+    border-radius: 7px;
+    background: var(--accent-soft);
+    overflow: hidden;
+    margin: 14px 0 8px;
+  }
+  .ota-progress-inner {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.2s ease;
+  }
+  .ota-progress-inner.error { background: var(--err); }
+  .ota-progress-inner.done { background: var(--ok); }
+  #ota-status-text { text-align: center; font-size: 0.95rem; color: var(--muted); margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -378,6 +410,7 @@
   <button id="btnGoShort" class="menu-btn" disabled>Kısa Okuma</button>
   <button id="btnGoLong" class="menu-btn secondary" disabled>Uzun Okuma</button>
   <button id="btnGoStatus" class="menu-btn secondary" disabled>Kart Durumu</button>
+  <button id="btnGoOta" class="menu-btn secondary" disabled>Firmware Güncelleme</button>
   <button id="btnResetDefaults" class="danger-btn" disabled style="width:100%; margin-top:18px;">Varsayılan Ayarlara Sıfırla</button>
 </div>
 
@@ -650,6 +683,29 @@
   </div>
 </div>
 
+<!-- ================= FIRMWARE GUNCELLEME (OTA) ================= -->
+<div id="view-ota" class="view">
+  <div class="view-header">
+    <button id="backFromOta" class="header-btn">← Geri</button>
+    <h2>Firmware Güncelleme</h2>
+    <span></span>
+  </div>
+
+  <div class="card">
+    <p class="hint" style="margin-bottom:14px;">Yeni bir <code>.bin</code> firmware dosyası seçip cihaza BLE üzerinden gönder. Yarıda kesilirse veya bozuksa cihaz eski (şu an çalışan) yazılımla kalmaya devam eder — güncelleme başarısız olsa bile kart bozulmaz.</p>
+
+    <input type="file" id="ota-file-input" accept=".bin" style="display:none">
+    <label for="ota-file-input" class="ota-file-picker" id="ota-file-label">Dosya seçmek için dokun (.bin)</label>
+
+    <div id="ota-progress-wrap" style="display:none;">
+      <div class="ota-progress-outer"><div class="ota-progress-inner" id="ota-progress-bar"></div></div>
+      <div id="ota-status-text">—</div>
+    </div>
+
+    <button id="btnStartOta" class="menu-btn" disabled style="margin-top:10px;">Güncellemeyi Başlat</button>
+  </div>
+</div>
+
 <script>
 // Sayfa/varliklarini onbellege alir ki internet olmadan yenilenince de
 // gercek sayfa (ve calisan butonlar) acilsin.
@@ -665,6 +721,7 @@ const METER_INFO_SVC = "00000010-5453-4554-2d45-4c422d52544d";
 const METER_LIVE_SVC = "00000020-5453-4554-2d45-4c422d52544d";
 const METER_CONTROL_SVC = "00000030-5453-4554-2d45-4c422d52544d";
 const METER_STATUS_SVC = "00000040-5453-4554-2d45-4c422d52544d";
+const METER_OTA_SVC = "00000050-5453-4554-2d45-4c422d52544d";
 
 const CHR = {
   threshold:    "00000110-5453-4554-2d45-4c422d52544d",
@@ -687,7 +744,15 @@ const CHR = {
   freeHeap:     "00000240-5453-4554-2d45-4c422d52544d",
   adcRate:      "00000340-5453-4554-2d45-4c422d52544d",
   ledStatus:    "00000440-5453-4554-2d45-4c422d52544d",
+  otaControl:   "00000150-5453-4554-2d45-4c422d52544d",
+  otaData:      "00000250-5453-4554-2d45-4c422d52544d",
+  otaStatus:    "00000350-5453-4554-2d45-4c422d52544d",
 };
+
+// Bir seferde BLE'ye yazilacak firmware parcasi boyutu (byte). Telefonlar
+// arasi MTU farkliliklarina karsi güvenli/tutucu bir deger secildi - MTU
+// pazarligi basarisiz olsa/dusuk kalsa bile calisir.
+const OTA_CHUNK_SIZE = 200;
 
 // ⚠️ "baud" buradan CIKARILDI: gercek protokolde baud rate her istekte
 // yeniden pazarlik ediliyor, kalici/degistirilebilir bir "varsayilan baud"
@@ -706,6 +771,7 @@ const errorBox = document.getElementById("errorBox");
 const btnGoShort = document.getElementById("btnGoShort");
 const btnGoLong = document.getElementById("btnGoLong");
 const btnGoStatus = document.getElementById("btnGoStatus");
+const btnGoOta = document.getElementById("btnGoOta");
 const btnResetDefaults = document.getElementById("btnResetDefaults");
 const refreshShort = document.getElementById("refreshShort");
 const refreshLong = document.getElementById("refreshLong");
@@ -716,8 +782,11 @@ let infoService = null;
 let liveService = null;
 let controlService = null;
 let statusService = null;
+let otaService = null;
 let commandChr = null;
 let writableChrCache = {};
+let otaSelectedFile = null;
+let otaInProgress = false;
 
 /* --- Ekran (view) gecisleri --- */
 function showView(id) {
@@ -741,6 +810,7 @@ function setStatus(connected, text) {
   btnGoShort.disabled = !connected;
   btnGoLong.disabled = !connected;
   btnGoStatus.disabled = !connected;
+  btnGoOta.disabled = !connected;
   btnResetDefaults.disabled = !connected;
 }
 
@@ -1248,6 +1318,124 @@ document.getElementById("backFromShort").addEventListener("click", () => showVie
 document.getElementById("backFromLong").addEventListener("click", () => showView("view-menu"));
 document.getElementById("backFromStatus").addEventListener("click", () => showView("view-menu"));
 
+/* --- Firmware guncelleme (OTA) ---
+   Akis: dosya sec -> onay -> "START:<boyut>" -> dosyayi OTA_CHUNK_SIZE'lik
+   parcalar halinde otaData characteristic'ine yaz -> "FINISH" -> durum
+   bildirimini (notify) izleyip ilerleme cubugunu guncelle. Cihaz basariliysa
+   birkac saniye icinde kendini resetleyip baglantiyi kesiyor - bu BEKLENEN
+   bir davranis, hata degil. */
+const otaFileInput = document.getElementById("ota-file-input");
+const otaFileLabel = document.getElementById("ota-file-label");
+const btnStartOta = document.getElementById("btnStartOta");
+const otaProgressWrap = document.getElementById("ota-progress-wrap");
+const otaProgressBar = document.getElementById("ota-progress-bar");
+const otaStatusText = document.getElementById("ota-status-text");
+
+function resetOtaUI() {
+  otaSelectedFile = null;
+  otaInProgress = false;
+  otaFileInput.value = "";
+  otaFileLabel.textContent = "Dosya seçmek için dokun (.bin)";
+  otaFileLabel.classList.remove("has-file");
+  otaProgressWrap.style.display = "none";
+  otaProgressBar.style.width = "0%";
+  otaProgressBar.classList.remove("error", "done");
+  btnStartOta.disabled = true;
+  btnStartOta.textContent = "Güncellemeyi Başlat";
+}
+
+otaFileInput.addEventListener("change", () => {
+  const file = otaFileInput.files[0];
+  if (!file) return;
+  otaSelectedFile = file;
+  otaFileLabel.textContent = file.name + " (" + (file.size / 1024).toFixed(1) + " KB)";
+  otaFileLabel.classList.add("has-file");
+  btnStartOta.disabled = false;
+});
+
+function otaSetProgress(pct, text, cls) {
+  otaProgressBar.style.width = Math.max(0, Math.min(100, pct)) + "%";
+  otaProgressBar.classList.remove("error", "done");
+  if (cls) otaProgressBar.classList.add(cls);
+  otaStatusText.textContent = text;
+}
+
+/* otaStatus characteristic'inden gelen "IDLE" / "WRITING:45" /
+   "SUCCESS_REBOOTING" / "ERROR:<sebep>" metnini ilerleme cubuguna yansitir. */
+function handleOtaStatusText(text) {
+  if (text.startsWith("WRITING:")) {
+    const pct = parseInt(text.split(":")[1], 10) || 0;
+    otaSetProgress(pct, "Yazılıyor... %" + pct);
+  } else if (text === "SUCCESS_REBOOTING") {
+    otaSetProgress(100, "Başarılı! Cihaz yeniden başlıyor...", "done");
+  } else if (text.startsWith("ERROR:")) {
+    otaSetProgress(0, "Hata: " + text.slice(6), "error");
+    otaInProgress = false;
+    btnStartOta.disabled = false;
+    btnStartOta.textContent = "Tekrar Dene";
+  }
+}
+
+async function doOta() {
+  if (!otaSelectedFile || otaInProgress) return;
+
+  const ok = await askConfirm(
+    "Cihaza yeni firmware (" + otaSelectedFile.name + ", " + (otaSelectedFile.size / 1024).toFixed(1) + " KB) " +
+    "gönderilecek. İşlem sürerken bağlantıyı kesme veya sayfadan ayrılma. Devam edilsin mi?"
+  );
+  if (!ok) return;
+
+  clearError();
+  otaInProgress = true;
+  btnStartOta.disabled = true;
+  btnStartOta.textContent = "Güncelleniyor...";
+  otaProgressWrap.style.display = "block";
+  otaSetProgress(0, "Başlıyor...");
+
+  try {
+    const controlChr = await otaService.getCharacteristic(CHR.otaControl);
+    const dataChr = await otaService.getCharacteristic(CHR.otaData);
+
+    const buf = await otaSelectedFile.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+
+    await controlChr.writeValue(encoder.encode("START:" + bytes.length));
+
+    for (let offset = 0; offset < bytes.length; offset += OTA_CHUNK_SIZE) {
+      const chunk = bytes.slice(offset, offset + OTA_CHUNK_SIZE);
+      await dataChr.writeValueWithoutResponse(chunk);
+      // Notify'dan bagimsiz, kendi hesapladigimiz ilerlemeyi de gosteriyoruz -
+      // notify BLE baglanti araligina gore gecikebilir, bu daha akici hissettiriyor.
+      const pct = Math.round(((offset + chunk.length) / bytes.length) * 100);
+      otaSetProgress(pct, "Gönderiliyor... %" + pct);
+    }
+
+    await controlChr.writeValue(encoder.encode("FINISH"));
+    otaSetProgress(100, "Doğrulanıyor...");
+  } catch (err) {
+    console.error(err);
+    otaSetProgress(0, "Hata: " + err.message, "error");
+    otaInProgress = false;
+    btnStartOta.disabled = false;
+    btnStartOta.textContent = "Tekrar Dene";
+  }
+}
+
+btnStartOta.addEventListener("click", doOta);
+
+btnGoOta.addEventListener("click", () => {
+  resetOtaUI();
+  showView("view-ota");
+});
+
+document.getElementById("backFromOta").addEventListener("click", () => {
+  if (otaInProgress) {
+    showError("Güncelleme sürerken bu ekrandan çıkma.");
+    return;
+  }
+  showView("view-menu");
+});
+
 /* --- Varsayılan ayarlara sıfırlama: ÖNCE ONAY İSTER, tıklayınca hemen
    yapmaz. Başarılıysa açık olan ekrandaki (kısa/uzun) değerleri de tazeler. --- */
 btnResetDefaults.addEventListener("click", async () => {
@@ -1304,7 +1492,12 @@ async function connectToServer() {
   liveService = await server.getPrimaryService(METER_LIVE_SVC);
   controlService = await server.getPrimaryService(METER_CONTROL_SVC);
   statusService = await server.getPrimaryService(METER_STATUS_SVC);
+  otaService = await server.getPrimaryService(METER_OTA_SVC);
   commandChr = await controlService.getCharacteristic(CHR.command);
+
+  // OTA durumu (yazma ilerlemesi/basari/hata) - view-ota ekraninda gosterilecek,
+  // ama abonelik baglantida bir kere kuruluyor (diger notify'larla ayni desen).
+  await subscribeAndDisplay(otaService, CHR.otaStatus, [], handleOtaStatusText);
 
   // VRMS max/min/mean periyodik (load profile periyodunda bir) guncelleniyor,
   // hem kisa hem uzun okuma ekranindaki karsiliklarini birlikte tazeliyor.
@@ -1330,7 +1523,7 @@ async function pickAndConnect() {
   try {
     bleDevice = await navigator.bluetooth.requestDevice({
       filters: [{ name: "METER-TEST" }],
-      optionalServices: [METER_INFO_SVC, METER_LIVE_SVC, METER_CONTROL_SVC, METER_STATUS_SVC],
+      optionalServices: [METER_INFO_SVC, METER_LIVE_SVC, METER_CONTROL_SVC, METER_STATUS_SVC, METER_OTA_SVC],
     });
 
     bleDevice.addEventListener("gattserverdisconnected", onDisconnected);
@@ -1352,8 +1545,13 @@ function onDisconnected() {
   liveService = null;
   controlService = null;
   statusService = null;
+  otaService = null;
   commandChr = null;
   writableChrCache = {};
+  // OTA basariyla bitince cihaz KENDINI resetleyip baglantiyi keser - bu
+  // BEKLENEN bir "disconnected" olayi, hata degil, bu yuzden UI'i ayrica
+  // sifirlamiyoruz (otaInProgress zaten false'a dusmus olur bir sonraki
+  // "Firmware Guncelleme" ekranina girildiginde resetOtaUI() calisir).
 }
 
 function disconnectIfConnected() {

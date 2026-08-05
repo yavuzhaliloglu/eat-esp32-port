@@ -17,9 +17,11 @@
  * Butun degerler basitlik icin ASCII metin olarak gonderiliyor (projenin
  * mevcut IEC 62056-21 protokolu de metin tabanli, ayni ruhla uyumlu).
  */
+#include <stdlib.h>
 #include "gatt_svc.h"
 #include "common.h"
 #include "meter_data.h"
+#include "header/ota.h"
 
 /* Salt okunur/yazilabilir bir characteristic'in getter+setter cifti.
  * setter == NULL ise write denemesi reddedilir (salt okunur alanlar icin). */
@@ -35,6 +37,10 @@ static int meter_live_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt, void *arg);
 static int command_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                               struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int ota_data_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 /* Proje ozel UUID tabani: "MTR-BLE-TEST" (ilk 12 byte), son 4 byte
  * servis/characteristic ayirt edici. */
@@ -144,6 +150,25 @@ static uint16_t uptime_chr_val_handle;
 static uint16_t free_heap_chr_val_handle;
 static uint16_t adc_rate_chr_val_handle;
 static uint16_t led_status_chr_val_handle;
+
+/* --- Meter OTA servisi (YENI - BLE uzerinden firmware guncelleme):
+ * control (write: "START:<toplam_byte>" / "FINISH"), data (write: ham
+ * firmware baytlari, kucuk parcalar halinde), status (read+notify: "IDLE",
+ * "WRITING:45", "SUCCESS_REBOOTING", "ERROR:<sebep>"). Is mantigi ota.c'de -
+ * burada sadece BLE'ye baglama var. --- */
+static const ble_uuid128_t meter_ota_svc_uuid =
+    BLE_UUID128_INIT(METER_UUID_BASE, 0x50, 0x00, 0x00, 0x00);
+static const ble_uuid128_t ota_control_chr_uuid =
+    BLE_UUID128_INIT(METER_UUID_BASE, 0x50, 0x01, 0x00, 0x00);
+static const ble_uuid128_t ota_data_chr_uuid =
+    BLE_UUID128_INIT(METER_UUID_BASE, 0x50, 0x02, 0x00, 0x00);
+static const ble_uuid128_t ota_status_chr_uuid =
+    BLE_UUID128_INIT(METER_UUID_BASE, 0x50, 0x03, 0x00, 0x00);
+
+static uint16_t ota_control_chr_val_handle;
+static uint16_t ota_data_chr_val_handle;
+static uint16_t ota_status_chr_val_handle;
+static bool ota_status_notify_enabled = false;
 
 /* Notify abonelik durumu (tek merkez/telefon baglantisi varsayiliyor) */
 static uint16_t meter_conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -285,6 +310,26 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
               .val_handle = &led_status_chr_val_handle},
              {0, /* No more characteristics in this service. */}}},
 
+    /* Meter OTA service - BLE uzerinden firmware guncelleme */
+    {.type = BLE_GATT_SVC_TYPE_PRIMARY,
+     .uuid = &meter_ota_svc_uuid.u,
+     .characteristics =
+         (struct ble_gatt_chr_def[]){
+             {.uuid = &ota_control_chr_uuid.u,
+              .access_cb = ota_control_chr_access,
+              .flags = BLE_GATT_CHR_F_WRITE,
+              .val_handle = &ota_control_chr_val_handle},
+             {.uuid = &ota_data_chr_uuid.u,
+              .access_cb = ota_data_chr_access,
+              .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+              .val_handle = &ota_data_chr_val_handle},
+             {.uuid = &ota_status_chr_uuid.u,
+              .access_cb = meter_live_chr_access,
+              .arg = (void *)ota_get_status_str,
+              .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+              .val_handle = &ota_status_chr_val_handle},
+             {0, /* No more characteristics in this service. */}}},
+
     {
         0, /* No more services. */
     },
@@ -406,6 +451,61 @@ static int command_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
+/* OTA kontrol: "START:<toplam_byte>" ile yeni bir guncelleme baslatir,
+ * "FINISH" ile bitirir (basariliysa cihaz kisa bir sure sonra resetlenir). */
+static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        ESP_LOGE(TAG, "unexpected access operation to ota control characteristic, opcode: %d", ctxt->op);
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    uint8_t buf[32];
+    uint16_t len;
+    int rc = copy_write_data(ctxt, buf, sizeof(buf), &len);
+    if (rc != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    ESP_LOGI(TAG, "ota control command: %s", (char *)buf);
+
+    if (strncmp((char *)buf, "START:", 6) == 0) {
+        uint32_t total_size = (uint32_t)strtoul((char *)buf + 6, NULL, 10);
+        ota_begin(total_size);
+    } else if (strcmp((char *)buf, "FINISH") == 0) {
+        ota_finish();
+    } else {
+        ESP_LOGE(TAG, "bilinmeyen ota komutu: %s", (char *)buf);
+    }
+
+    send_ota_status_indication();
+    return 0;
+}
+
+/* OTA veri: firmware binary'sinin bir parcasi - dogrudan ota_write_chunk()'a
+ * gecirilir. Metin degil ham bayt oldugu icin (char *)buf gibi string
+ * fonksiyonlariyla islenmiyor. */
+static int ota_data_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        ESP_LOGE(TAG, "unexpected access operation to ota data characteristic, opcode: %d", ctxt->op);
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    static uint8_t chunk_buf[512];
+    uint16_t len;
+    int rc = copy_write_data(ctxt, chunk_buf, sizeof(chunk_buf), &len);
+    if (rc != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    ota_write_chunk(chunk_buf, len);
+    send_ota_status_indication();
+    return 0;
+}
+
 /* Public functions */
 void send_vrms_indication(void) {
     if (meter_conn_handle_inited) {
@@ -440,6 +540,15 @@ void send_status_indication(void) {
         if (free_heap_changed_since_last_check()) {
             ble_gatts_notify(meter_conn_handle, free_heap_chr_val_handle);
         }
+    }
+}
+
+/* OTA durumu (IDLE/WRITING:%/SUCCESS_REBOOTING/ERROR:...) her komut/veri
+ * parcasindan sonra tazelenip abone tarafa gonderiliyor - web sayfasi
+ * ilerleme cubugunu bununla besliyor. */
+void send_ota_status_indication(void) {
+    if (meter_conn_handle_inited && ota_status_notify_enabled) {
+        ble_gatts_notify(meter_conn_handle, ota_status_chr_val_handle);
     }
 }
 
@@ -493,12 +602,15 @@ void gatt_svr_subscribe_cb(struct ble_gap_event *event) {
         vrms_instant_notify_enabled = event->subscribe.cur_notify;
     } else if (event->subscribe.attr_handle == free_heap_chr_val_handle) {
         free_heap_notify_enabled = event->subscribe.cur_notify;
+    } else if (event->subscribe.attr_handle == ota_status_chr_val_handle) {
+        ota_status_notify_enabled = event->subscribe.cur_notify;
     }
 }
 
 void gatt_svr_reset_subscriptions(void) {
     meter_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     meter_conn_handle_inited = false;
+    ota_status_notify_enabled = false;
     vrms_max_notify_enabled = false;
     vrms_min_notify_enabled = false;
     vrms_mean_notify_enabled = false;

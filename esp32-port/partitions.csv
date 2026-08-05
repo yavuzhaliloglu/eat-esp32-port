@@ -3,9 +3,19 @@
 # (Program->SerialNumber->LoadProfile->Threshold->ResetDates->AmplitudeChange)
 # ESP-IDF partition table'ina uyarlandi. Butun veri partition'lari 4KB
 # sektorlerin tam kati (esp_partition_erase_range gereksinimi).
+#
+# ⚠️ BLE UZERINDEN FIRMWARE GUNCELLEME (OTA) ICIN DEGISTIRILDI: tek "factory"
+# uygulama alani yerine, standart ESP-IDF OTA duzeni - otadata (hangi yuvanin
+# aktif oldugunu tutan kucuk bolum) + iki uygulama yuvasi (ota_0/ota_1).
+# Cihaz su an calistigi yuvadan farkli olan yuvaya yeni firmware'i yazar,
+# basariyla dogrulanip tamamlaninca "bundan sonra oradan basla" diye
+# isaretlenir - yarida kalan/bozuk bir guncelleme eski (calisan) yazilimi
+# HIC bozmaz, cihaz bir sonraki acilista yine eski yazilimla kalir.
 nvs,              data, nvs,     0x9000,   0x6000,
 phy_init,         data, phy,     0xf000,   0x1000,
-factory,          app,  factory, 0x10000,  0x100000,
+otadata,          data, ota,     0x10000,  0x2000,
+ota_0,            app,  ota_0,   ,         0x100000,
+ota_1,            app,  ota_1,   ,         0x100000,
 serial_num,       data, 0x40,    ,         0x1000,
 lp_sector,        data, 0x40,    ,         0x1000,
 load_profile,     data, 0x40,    ,         0xC000,
