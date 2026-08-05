@@ -441,11 +441,6 @@ static void vADCReadTask(void *pvParameters)
     // tespiti eklendi.
     int last_load_profile_write_min = -1;
 
-    // GECICI TANI LOGU: "vrms is:" satiri normalde her pencerede (saniyede
-    // birkac kere) basiyordu, okunabilirlik icin saniyede 1'e dusuruldu -
-    // hesaplamaya (vrms degerinin kendisine) hicbir etkisi yok.
-    int64_t vrms_print_last_us = 0;
-
     esp_task_wdt_add(NULL);
 
     while (1)
@@ -459,17 +454,6 @@ static void vADCReadTask(void *pvParameters)
         }
 
         esp_task_wdt_reset();
-
-        int64_t now_us = esp_timer_get_time();
-        // ⚠️ "PENCERE SAPMA KONTROLU" logu buradan KALDIRILDI: ADCSampleTask
-        // artik ADCReadTask'a sabit 1 saniyede bir haber veriyor (bkz.
-        // ADCSampleTask'taki notify degisikligi) - bu, gercek pencere-doldurma
-        // suresiyle (~240ms) artik dogrudan iliskili degil, o yuzden "beklenen
-        // pencere suresi" ile "iki bildirim arasi gecen sure" karsilastirmasi
-        // artik anlamli bir sapma olcumu degil, hep yanlis/yanitici buyuk bir
-        // fark gosterirdi. getMeasuredSampleRateHz()/getWindowSampleCount()
-        // hala gecerli (BLE Kart Durumu'ndaki ADC hizi alani onlari kullaniyor),
-        // sadece bu ozel karsilastirma anlamsizlasti.
 
         // dev'deki sabit VRMS_SAMPLE_SIZE yerine, gercek olculen hiza gore
         // hesaplanan pencere boyutu kullaniliyor (bkz. ADCSampleTask'taki
@@ -500,11 +484,16 @@ static void vADCReadTask(void *pvParameters)
         // decimasyonsuz) rapor/karsilastirma icin hala mevcut ama artik
         // burada cagrilmiyor.
         float vrms = calculateVRMSDecimated(adc_samples_buffer, window_samples, ADC_DECIMATION_FACTOR);
-        if (now_us - vrms_print_last_us >= 1000000)
-        {
-            PRINTF("vrms is: %f\r\n", vrms);
-            vrms_print_last_us = now_us;
-        }
+        // ⚠️ Ayri bir "saniyede 1 bas" freni ARTIK GEREKMIYOR ve KALDIRILDI:
+        // bu satir eskiden (bildirim hala ~4x/sn geldigi donemde) kendi basina
+        // bir zamanlayiciyla saniyede 1'e dusuruluyordu. Ama ADCSampleTask'in
+        // kendisi artik zaten saniyede 1 bildirim gonderiyor (bkz. yukaridaki
+        // notify degisikligi) - burada AYRICA bagimsiz bir zamanlayici tutmak,
+        // iki farkli 1 saniyelik saatin (biri ADCSampleTask'ta, biri burada)
+        // birbirine kilitli OLMAMASI yuzunden ara sira faz kaymasina ve
+        // WRITE DEBUG TASK'in duzenli saniye tikleriyle hizali gitmeyip bir
+        // basip bir atlamasina sebep oluyordu. Simdi dogrudan basiliyor.
+        PRINTF("vrms is: %f\r\n", vrms);
 
         // BLE (kullanicinin istegiyle): periyodik max/min/mean'in disinda,
         // HER pencerede (artik saniyede 1 - bkz. ADCSampleTask'taki notify
