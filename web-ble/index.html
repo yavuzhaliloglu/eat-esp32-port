@@ -1570,13 +1570,21 @@ connectBtn.addEventListener("click", () => {
 
 disconnectBtn.addEventListener("click", disconnectIfConnected);
 
-// Sayfa kapanırken/yenilenirken/arka plana geçerken bağlantıyı temiz
-// şekilde kes, ki cihaz hemen tekrar yayına dönsün ve yeniden bulunabilsin.
+// Sayfa gercekten kapanirken/yenilenirken baglantiyi temiz sekilde kes,
+// ki cihaz hemen tekrar yayina donsun ve yeniden bulunabilsin.
+//
+// ⚠️ GERCEK BIR HATA BURADAYDI, BULUNUP DUZELTILDI: daha once "visibilitychange"
+// (sayfa arka plana gecince) olayinda da baglanti kesiliyordu - ama dosya secme
+// ekrani (input type=file) acilinca da Android bu sayfayi "arka plana" alip
+// AYNI olayi tetikliyor. Sonuc: kullanici sadece bir .bin dosyasi secmeye
+// calisirken BLE baglantisi kesiliyor, "gattserverdisconnected" olayi
+// onDisconnected()'i tetikleyip ekrani ana menuye geri atiyor, secilen dosya
+// da (goruntude) kaybolmus gibi oluyordu. "visibilitychange" kaldirildi -
+// artik sadece GERCEKTEN sayfadan ayrilma/kapanma/yenileme (pagehide/
+// beforeunload) baglantiyi kesiyor, gecici arka plana alma (dosya secici,
+// baska bir uygulamaya kisa sureligine gecme vs.) baglantiyi etkilemiyor.
 window.addEventListener("pagehide", disconnectIfConnected);
 window.addEventListener("beforeunload", disconnectIfConnected);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") disconnectIfConnected();
-});
 
 // Tarayıcı destekliyorsa (Chrome'un "persistent permissions" özelliği),
 // daha önce izin verilen cihaza sayfa açılır açılmaz, tıklamaya gerek
