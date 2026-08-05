@@ -393,19 +393,17 @@ void writeThresholdRecord(float vrms, uint16_t variance)
     // th_flash_buf'in TAMAMINI (bir sektor) ilgili sektore yaz - dev'deki
     // gibi bu adim HER ZAMAN calisir (normal ekleme VE sektor degisimi
     // durumlarinin ikisinde de), if/else disinda.
-    if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) == pdTRUE)
-    {
-        PRINTF("WRITETHRESHOLDRECORD: write flash mutex received\r\n");
-        writeThresholdRecordsSectorToFlash(th_sector_data);
-        PRINTF("WRITETHRESHOLDRECORD: threshold record written to flash.\r\n");
-        xSemaphoreGive(xFlashMutex);
-    }
-    else
-    {
-        PRINTF("MUTEX CANNOT RECEIVED!\r\n");
-        led_blink_pattern(LED_ERROR_CODE_FLASH_MUTEX_NOT_TAKEN, false);
-        return;
-    }
+    //
+    // ⚠️ GERCEK BIR HATA BURADAYDI, BULUNUP DUZELTILDI: writeThresholdRecordsSectorToFlash()
+    // kendi icinde ZATEN xFlashMutex aliyor (spiflash.c). Burada AYRICA disaridan
+    // bir kez daha xFlashMutex alip, onu ELDE TUTARKEN o fonksiyonu cagirmak,
+    // ayni gorevin ayni (recursive olmayan) mutex'i ikinci kez almaya calismasina
+    // sebep oluyordu - bu HER ZAMAN (baska hicbir seyle cakismasa bile) 250ms
+    // bekleyip basarisiz oluyordu, ve "threshold record written to flash." mesaji
+    // kosulsuz basildigi icin gercekte hicbir zaman flash'a yazilmamis kayitlari
+    // "basarili" gibi gosteriyordu. Duzeltme: disaridaki fazladan kilit sarmalayicisi
+    // kaldirildi, fonksiyon dogrudan cagriliyor - kendi mutex'ini kendi yonetiyor.
+    writeThresholdRecordsSectorToFlash(th_sector_data);
 }
 
 #if CONF_SUDDEN_AMPLITUDE_CHANGE_ENABLED
