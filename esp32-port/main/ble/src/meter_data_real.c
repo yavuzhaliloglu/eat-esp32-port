@@ -360,7 +360,10 @@ static void append_threshold_history(char *out, size_t out_size, size_t *pos)
         ESP_LOGE(TAG, "append_threshold_history: flash mutex alinamadi");
         return;
     }
-    esp_partition_read(part, 0, threshold_records_raw, total_size);
+    // ⚠️ GERCEK BIR HATA BURADAYDI (uart.c/send_threshold_records()'teki ile
+    // AYNI): her zaman 0. sektorden okunuyordu, ama yazma tarafi su anki
+    // aktif sektore (th_sector_data) yaziyor - duzeltildi.
+    esp_partition_read(part, (size_t)th_sector_data * FLASH_SECTOR_SIZE, threshold_records_raw, total_size);
     xSemaphoreGive(xFlashMutex);
 
     for (size_t i = 0, idx = THRESHOLD_RECORD_OBIS_COUNT; i < THRESHOLD_RECORD_OBIS_COUNT; i++, idx--)

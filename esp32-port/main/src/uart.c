@@ -383,7 +383,14 @@ void send_threshold_records(uint8_t *xor_result)
 
     if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) == pdTRUE)
     {
-        esp_partition_read(threshold_rec_part, 0, threshold_records_raw, total_size);
+        // ⚠️ GERCEK BIR HATA BURADAYDI, BULUNUP DUZELTILDI: burasi her zaman
+        // partition'in 0. sektorunden okuyordu, ama yazma tarafi (adc.c/
+        // writeThresholdRecordsSectorToFlash) su anki AKTIF sektore
+        // (th_sector_data, 16 sektorluk dairesel alanda doner) yaziyor -
+        // okuma ve yazma farkli fiziksel sektorlere baktigi icin RS485
+        // uzerinden hep bos/eski veri gorunuyordu. Duzeltme: okuma da
+        // th_sector_data'yi kullanmaya basladi.
+        esp_partition_read(threshold_rec_part, (size_t)th_sector_data * FLASH_SECTOR_SIZE, threshold_records_raw, total_size);
         xSemaphoreGive(xFlashMutex);
     }
     else
