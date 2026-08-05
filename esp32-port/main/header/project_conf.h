@@ -29,7 +29,7 @@
 #define DEVICE_PASSWORD "12345678"
 // Device software version number
 // TODO: ESP32-C3 portu icin surum numarasi netlesince guncellenecek
-#define SOFTWARE_VERSION "V1.4.0"
+#define SOFTWARE_VERSION "V1.4.1-OTATEST"
 // production date of device (yy-mm-dd)
 #define PRODUCTION_DATE "26-05-22"
 // Debugs
