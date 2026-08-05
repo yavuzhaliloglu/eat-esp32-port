@@ -95,7 +95,7 @@ Mutex'ler eski kodda `portMAX_DELAY` ile, yani süresiz bekliyordu - bir mutex h
 
 ## Ne çıkarıldı, neden
 
-- OTA (ve `md5.c/h`) - zaten `dev` branch'inin kendisinden kaldırılmıştı, taşınacak bir şey kalmamıştı
+- RP2040'ın eski RS485 tabanlı OTA'sı (`md5.c/h`, elle MD5 hesaplama, RP2040'a özel watchdog-scratch-register ile flash-swap) - zaten `dev` branch'inin kendisinden kaldırılmıştı, taşınacak çalışan bir implementasyon kalmamıştı (`master`'da hâlâ vardı, referans için oraya bakıldı). Yerine, aşağıda anlatılan **yeni ve tamamen farklı bir OTA** (BLE üzerinden, ESP32'nin kendi `esp_ota_ops` API'siyle) eklendi - eskisinin bire bir portu değil, sıfırdan.
 - RP2040'a özel, Pico SDK'nın kendi dahili donanım RTC'sini ayarlayan ikinci bir zaman kaynağı (`rtc_set_datetime`) - ESP32'de buna gerek yok, tek zaman kaynağımız zaten harici PT7C4338 çipi
 
 ## Testler
@@ -151,7 +151,7 @@ Threshold, kalibrasyon sabiti, load profile periyodu ve RTC saati gerçekten `AD
 
 ## BLE / Web arayüzü
 
-Cihaz "METER-TEST" adıyla yayın yapıyor, dört GATT servisi var:
+Cihaz "METER-TEST" adıyla yayın yapıyor, beş GATT servisi var:
 
 | Servis | İçerik |
 |---|---|
@@ -159,6 +159,7 @@ Cihaz "METER-TEST" adıyla yayın yapıyor, dört GATT servisi var:
 | Meter Live | VRMS max/min/ortalama (load profile periyodunda güncellenir) + VRMS anlık (her ölçüm penceresinde güncellenir) |
 | Meter Control | komut yazma (kısa/uzun okuma tetikleme, tarih-aralıklı load profile sorgusu, varsayılana sıfırlama, geçmiş kayıt silme) + geçmiş kayıt okuma |
 | Meter Status | çalışma süresi, boş bellek, ADC örnekleme hızı, LED/görev sağlığı durumu - bunların hiçbiri RS485 protokolünde yok, sadece BLE'ye özel |
+| Meter OTA | firmware güncelleme - komut (`START:<boyut>`/`FINISH`), veri (ham firmware parçaları), durum (okuma+notify) - detay aşağıda |
 
 Şifre/eşleştirme yok - fiziksel yakınlık zaten doğal bir güvenlik sınırı olarak yeterli görüldü.
 
@@ -166,9 +167,27 @@ Web sayfası ekran/menü tabanlı: Kısa Okuma, Uzun Okuma, Kart Durumu. Uzun Ok
 
 BLE'den gelen hiçbir veri `innerHTML` ile sayfaya eklenmiyor (hep `textContent`/DOM node) - eşleştirme olmadığı için "METER-TEST" adını taklit eden sahte bir cihaz kötü niyetli HTML/script gönderebilir, bunu kapatmak için. Sayfa PWA - bir kere internetle açılınca sonraki yenilemeler internet olmadan da çalışıyor.
 
+## Firmware güncelleme (OTA)
+
+Kartı yeniden USB'ye takmadan, BLE üzerinden yeni firmware yükleyebiliyoruz. Bunun için partition tablosu değişti - tek bir `factory` alanı yerine, ESP-IDF'in standart OTA düzeni:
+
+| Partition | Ne işe yarıyor |
+|---|---|
+| `otadata` | Hangi yuvanın (aşağıdakilerden) aktif olduğunu tutan küçük (8KB) bir kayıt - **iki kopya** halinde (sıra numarası + checksum ile), tek kopya bozulsa bile diğeri geçerliliğini korur |
+| `ota_0` / `ota_1` | İki ayrı 1MB'lık uygulama alanı - cihaz her zaman birinden çalışıyor, güncelleme DİĞERİNE yazılıyor |
+
+**Akış**: web sayfasından `.bin` dosyası seçilip onaylanınca, dosya küçük parçalar halinde BLE'den gönderiliyor (`esp_ota_write`), bitince ESP-IDF kendi bütünlük kontrolünü yapıyor (`esp_ota_end` - checksum/imza doğrulaması, elle MD5 hesaplamamıza gerek yok) ve başarılıysa "bundan sonra diğer yuvadan başla" diye işaretlenip (`esp_ota_set_boot_partition`) cihaz resetleniyor.
+
+**Bootloader nasıl karar veriyor**: ESP-IDF'in kendi 2. aşama bootloader'ı (biz yazmadık, framework'ün standart parçası) her açılışta `otadata`'daki iki kopyayı okuyup checksum'ı geçerli olan ve sıra numarası büyük olanı esas alıyor, seçtiği yuvanın imaj başlığını doğruluyor, sonra oraya atlıyor. Ayrıca **otomatik geri alma (rollback)** açık (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`): yeni yazılan yuva ilk açılışta "onaylanmamış" durumda başlıyor, kod `esp_ota_mark_app_valid_cancel_rollback()`'e (bizde `app_main()`'in sonunda) kadar sorunsuz gelirse "sağlıklı" işaretleniyor - gelemezse (çöker/sürekli resetlenirse), bir sonraki açılışta bootloader kendiliğinden bir önceki (bilinen sağlam) yuvaya dönüyor. Yani yarım/bozuk bir güncelleme cihazı asla kalıcı olarak bozamıyor.
+
+**Geliştirirken bulup düzelttiğimiz iki gerçek hata**:
+- `writeThresholdRecord()`'daki mutex'in kendi kendine ikinci kez kilitlenmesi gibi, burada da BLE bağlantısı transfer ortasında koparsa (kullanıcı iptal etsin, sinyal gitsin fark etmez) OTA durumu hiç sıfırlanmıyordu - bir sonraki bağlantıda yeni deneme sürekli reddediliyordu. Artık bağlantı koptuğunda (`esp_ota_abort()` ile) otomatik temizleniyor.
+- Web tarafında, dosya seçme ekranı (`<input type=file>`) açılınca Android sayfayı "arka plana" alıyor - sayfa bunu "kullanıcı ayrıldı" sanıp BLE bağlantısını kendi kendine kesiyordu (`visibilitychange` olayı). Artık sadece sayfa gerçekten kapanırken/yenilenirken bağlantı kesiliyor, dosya seçme gibi geçici arka plana almalar etkilemiyor.
+
 ## Bilinen sınırlamalar / henüz bitmemiş işler
 
 - Gerçek 220V hat gerilimiyle uçtan uca test henüz yapılmadı - güvenlik gereği bu bağlantı gözetimsiz kurulmuyor
 - Düşük test gerilimlerinde (örn. 15-40V) doğru ölçüyor ama 220V civarında okunan değer ~170V'ta bir tavana vuruyor - şu an araştırılıyor, muhtemelen mevcut gerilim bölücü direnç oranının 220V'un tam genliğini ADC'nin güvenli aralığına sığdırmaya yetmediği (donanımsal, kod tarafında değil)
 - iOS/Safari Web Bluetooth desteklemiyor - sahadaki teknisyenlerin hangi telefonu kullandığı henüz netleşmedi, bu önemli bir açık soru
 - Seri numarası şu an derleme zamanında sabit kodlanmış bir placeholder - gerçek üretim stratejisi (NVS mi, efuse mi, cihaz başına ayrı derleme mi) henüz kararlaştırılmadı
+- OTA kod olarak tamamlandı, farklı bir `.bin` ile uçtan uca fiziksel testi sürüyor - ayrıca güncelleme sürerken RS485 okuma/threshold yazma gibi işlemlerle aynı anda çalıştırılınca (veri bozulması beklenmiyor ama) zamanlama etkisi olup olmadığı henüz fiziksel olarak ölçülmedi
