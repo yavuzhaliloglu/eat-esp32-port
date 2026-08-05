@@ -389,13 +389,6 @@ static void vADCSampleTask(void *pvParameters)
 {
     (void)pvParameters;
 
-    // GECICI TANI LOGU (220V clipping arastirmasi icin): ham ADC'nin gordugu
-    // min/max degeri sadece saniyede 1 kere loglar - hesaplamaya (VRMS) hicbir
-    // etkisi yok, sadece okunabilirlik icin hizi dusuruldu.
-    uint16_t diag_raw_min = UINT16_MAX;
-    uint16_t diag_raw_max = 0;
-    int64_t diag_last_log_us = esp_timer_get_time();
-
     // ADCReadTask'a "yeni pencere hazir, VRMS hesapla" haberi artik burada,
     // sabit 1 saniyelik bir zamanlayiciyla veriliyor (bkz. yukaridaki not).
     int64_t notify_last_us = esp_timer_get_time();
@@ -407,9 +400,6 @@ static void vADCSampleTask(void *pvParameters)
         for (int i = 0; i < ADC_SAMPLE_BURST_SIZE; i++)
         {
             uint16_t adc_sample = readMainADCSample();
-
-            if (adc_sample < diag_raw_min) diag_raw_min = adc_sample;
-            if (adc_sample > diag_raw_max) diag_raw_max = adc_sample;
 
             bool is_added = addToFIFO(&adc_fifo, adc_sample);
             if (!is_added)
@@ -424,14 +414,6 @@ static void vADCSampleTask(void *pvParameters)
         {
             xTaskNotifyGive(xADCHandle);
             notify_last_us = now_us;
-        }
-
-        if (now_us - diag_last_log_us >= 1000000)
-        {
-            ESP_LOGI(TAG, "TANI: ham ADC min=%u max=%u (0=alt sinir, 4095=ust sinir)", diag_raw_min, diag_raw_max);
-            diag_raw_min = UINT16_MAX;
-            diag_raw_max = 0;
-            diag_last_log_us = now_us;
         }
 
         esp_task_wdt_reset();
