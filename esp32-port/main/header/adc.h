@@ -39,11 +39,13 @@
 // semasi) hazirlar. main.c'nin gorev yapisi kurulurken cagrilacak.
 uint8_t initADC(void);
 
-// Ana sinyal (ADC_READ_PIN) ve bias/teshis (ADC_BIAS_PIN) kanallarindan tek
-// bir ham ornek okur - ADCSampleTask'in FIFO'yu doldururken kullanacagi
-// dusuk seviye fonksiyonlar.
+// Ana sinyal (ADC_READ_PIN) kanalindan tek bir ham ornek okur -
+// ADCSampleTask'in FIFO'yu doldururken kullanacagi dusuk seviye fonksiyon.
+// ⚠️ readBiasADCSample() KALDIRILDI: RMS artik self-referencing yontemle
+// (bufferin kendi ortalamasindan) hesaplandigi icin bias/GPIO4 kanali hic
+// kullanilmiyordu - kullanicinin/hocanin istegiyle tamamen cikarildi,
+// gereksiz ADC okuma dongusu kalmadi.
 uint16_t readMainADCSample(void);
-uint16_t readBiasADCSample(void);
 
 // initADC() sirasinda bir kere hesaplanan kalibre egim (V/sayim, ana kanal).
 // DC/sabit gerilim testlerinde ham sayim ortalamasini voltaja cevirmek icin

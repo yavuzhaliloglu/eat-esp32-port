@@ -144,7 +144,6 @@ extern volatile float vrms_mean_last;
 extern volatile float vrms_instant;
 extern uint16_t vrms_threshold;
 extern uint8_t threshold_set_before;
-extern float bias_voltage;
 // Calisma-zamaninda degistirilebilir kalibrasyon sabiti (BLE'den yazilabilir
 // olmasi icin) - dev'de/ilk portta VRMS_MULTIPLICATION_VALUE sabit bir
 // #define'di (148.8f), artik gercek bir degisken (baslangic degeri hala

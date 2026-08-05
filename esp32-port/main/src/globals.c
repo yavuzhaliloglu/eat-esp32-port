@@ -19,7 +19,9 @@ volatile float vrms_mean_last = 0.0;
 volatile float vrms_instant = 0.0;
 uint16_t vrms_threshold = 5;
 uint8_t threshold_set_before = 0;
-float bias_voltage = 0;
+// ⚠️ bias_voltage KALDIRILDI: self-referencing RMS yontemine gecince hic
+// yazilmiyordu (her zaman 0 kalirdi), kullanicinin/hocanin istegiyle
+// tamamen cikarildi.
 // Baslangic degeri VRMS_MULTIPLICATION_VALUE define'indan (project_conf.h,
 // 148.8f) - artik BLE'den calisma-zamaninda degistirilebilir bir degisken.
 float vrms_multiplication_value = VRMS_MULTIPLICATION_VALUE;

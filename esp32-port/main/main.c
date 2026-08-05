@@ -346,9 +346,20 @@ static void vUARTTask(void *pvParameters)
 }
 
 // ---------------------------------------------------------------------------
-// ADCSampleTask - dev'deki vADCSampleTask ile ayni mantik (FIFO'yu doldur,
-// bias ortalamasini hesapla, BIAS_SAMPLE_SIZE ornekte bir ADCReadTask'a
-// haber ver).
+// ADCSampleTask - dev'deki vADCSampleTask ile ayni mantik (FIFO'yu doldur).
+//
+// ⚠️ BIAS OKUMA TAMAMEN KALDIRILDI (kullanicinin/hocanin istegiyle): RMS
+// artik self-referencing yontemle (bufferin kendi ortalamasindan) hesaplandigi
+// icin bias/GPIO4 kanali hic kullanilmiyordu - readBiasADCSample() cagrisi,
+// bias_buffer/bias_voltage tamamen cikarildi (bkz. adc.c/adc.h/globals.c).
+//
+// ⚠️ ADCReadTask'A HABER VERME (notify) ARTIK SANIYEDE 1'E SABIT (kullanicinin
+// istegiyle): eskiden bias tamponunun dolmasina (dolayisiyla ana pencere
+// boyutuna, ~240ms) bagliydi, bu da ADCReadTask'i saniyede ~4 kere tetikliyordu.
+// Artik ana FIFO'yu doldurmaya ARALIKSIZ devam ediyoruz (pencere boyutu/50Hz-
+// tam-periyot hesabi DEGISMEDI, ADCReadTask hala getWindowSampleCount() kadar
+// "son" ornegi cekiyor), ama xTaskNotifyGive() dogrudan 1 saniyelik bir
+// zamanlayiciya bagli - VRMS hesabi artik gercekten saniyede 1 tetikleniyor.
 //
 // ⚠️ KASITLI FARK: dev, RP2040'ta 2000Hz FreeRTOS tick hizinda "tick basina
 // 1 ornek" ile calisiyordu (donanim tick'ine kilitli, hassas 2000Hz). ESP-IDF
@@ -377,8 +388,17 @@ static void vUARTTask(void *pvParameters)
 static void vADCSampleTask(void *pvParameters)
 {
     (void)pvParameters;
-    static uint16_t bias_buffer[BIAS_SAMPLE_SIZE];
-    uint16_t bias_buffer_count = 0;
+
+    // GECICI TANI LOGU (220V clipping arastirmasi icin): ham ADC'nin gordugu
+    // min/max degeri sadece saniyede 1 kere loglar - hesaplamaya (VRMS) hicbir
+    // etkisi yok, sadece okunabilirlik icin hizi dusuruldu.
+    uint16_t diag_raw_min = UINT16_MAX;
+    uint16_t diag_raw_max = 0;
+    int64_t diag_last_log_us = esp_timer_get_time();
+
+    // ADCReadTask'a "yeni pencere hazir, VRMS hesapla" haberi artik burada,
+    // sabit 1 saniyelik bir zamanlayiciyla veriliyor (bkz. yukaridaki not).
+    int64_t notify_last_us = esp_timer_get_time();
 
     esp_task_wdt_add(NULL);
 
@@ -388,25 +408,30 @@ static void vADCSampleTask(void *pvParameters)
         {
             uint16_t adc_sample = readMainADCSample();
 
+            if (adc_sample < diag_raw_min) diag_raw_min = adc_sample;
+            if (adc_sample > diag_raw_max) diag_raw_max = adc_sample;
+
             bool is_added = addToFIFO(&adc_fifo, adc_sample);
             if (!is_added)
             {
                 removeFirstElementAddNewElement(&adc_fifo, adc_sample);
             }
+        }
 
-            uint16_t bias_sample = readBiasADCSample();
-            bias_buffer[(bias_buffer_count++) % BIAS_SAMPLE_SIZE] = bias_sample;
+        int64_t now_us = esp_timer_get_time();
 
-            // dev'deki sabit BIAS_SAMPLE_SIZE yerine, initADC()'te gercek
-            // olculen hiza gore hesaplanan pencere boyutu kullaniliyor
-            // (bkz. adc.c/getWindowSampleCount() - ekip arkadasinin
-            // "tam periyot sayisina oturt" yontemi).
-            if (bias_buffer_count == (uint16_t)getWindowSampleCount())
-            {
-                bias_voltage = getMean(bias_buffer, (size_t)getWindowSampleCount());
-                bias_buffer_count = 0;
-                xTaskNotifyGive(xADCHandle);
-            }
+        if (now_us - notify_last_us >= 1000000)
+        {
+            xTaskNotifyGive(xADCHandle);
+            notify_last_us = now_us;
+        }
+
+        if (now_us - diag_last_log_us >= 1000000)
+        {
+            ESP_LOGI(TAG, "TANI: ham ADC min=%u max=%u (0=alt sinir, 4095=ust sinir)", diag_raw_min, diag_raw_max);
+            diag_raw_min = UINT16_MAX;
+            diag_raw_max = 0;
+            diag_last_log_us = now_us;
         }
 
         esp_task_wdt_reset();
@@ -434,14 +459,10 @@ static void vADCReadTask(void *pvParameters)
     // tespiti eklendi.
     int last_load_profile_write_min = -1;
 
-    // ⚠️ SAPMA (drift) KONTROLU (dev'de yok, kullanicinin istegiyle eklendi):
-    // initADC()'te olculen hizdan hesaplanan "bu pencerenin ne kadar surmesi
-    // BEKLENDIGI" ile, calisirken iki bildirim arasinda GERCEKTEN gecen
-    // sureyi karsilastirip yuzde farkini logluyoruz - boylece pencere
-    // boyutu hesabinin "tahmini" degil calisirken de dogru kaldigini
-    // (ya da onemli bir sapma varsa bunu) gozle gorebiliyoruz.
-    int64_t last_notify_us = 0;
-    int notif_count = 0;
+    // GECICI TANI LOGU: "vrms is:" satiri normalde her pencerede (saniyede
+    // birkac kere) basiyordu, okunabilirlik icin saniyede 1'e dusuruldu -
+    // hesaplamaya (vrms degerinin kendisine) hicbir etkisi yok.
+    int64_t vrms_print_last_us = 0;
 
     esp_task_wdt_add(NULL);
 
@@ -458,26 +479,15 @@ static void vADCReadTask(void *pvParameters)
         esp_task_wdt_reset();
 
         int64_t now_us = esp_timer_get_time();
-        if (last_notify_us != 0)
-        {
-            int64_t actual_us = now_us - last_notify_us;
-            float measured_rate = getMeasuredSampleRateHz();
-            if (measured_rate > 0.0f)
-            {
-                float expected_us = ((float)getWindowSampleCount() / measured_rate) * 1000000.0f;
-                float diff_pct = (expected_us > 0.0f) ? ((float)actual_us - expected_us) / expected_us * 100.0f : 0.0f;
-                // Her bildirimde degil, her 20 bildirimde bir logla (spam
-                // olmasin diye) - sapma varsa zaten tutarli sekilde
-                // gorunecektir, tek seferlik gurultuye takilmaya gerek yok.
-                if ((notif_count % 20) == 0)
-                {
-                    ESP_LOGI(TAG, "PENCERE SAPMA KONTROLU: beklenen=%.1fms gercek=%.1fms fark=%.1f%%",
-                             expected_us / 1000.0f, (float)actual_us / 1000.0f, diff_pct);
-                }
-            }
-        }
-        last_notify_us = now_us;
-        notif_count++;
+        // ⚠️ "PENCERE SAPMA KONTROLU" logu buradan KALDIRILDI: ADCSampleTask
+        // artik ADCReadTask'a sabit 1 saniyede bir haber veriyor (bkz.
+        // ADCSampleTask'taki notify degisikligi) - bu, gercek pencere-doldurma
+        // suresiyle (~240ms) artik dogrudan iliskili degil, o yuzden "beklenen
+        // pencere suresi" ile "iki bildirim arasi gecen sure" karsilastirmasi
+        // artik anlamli bir sapma olcumu degil, hep yanlis/yanitici buyuk bir
+        // fark gosterirdi. getMeasuredSampleRateHz()/getWindowSampleCount()
+        // hala gecerli (BLE Kart Durumu'ndaki ADC hizi alani onlari kullaniyor),
+        // sadece bu ozel karsilastirma anlamsizlasti.
 
         // dev'deki sabit VRMS_SAMPLE_SIZE yerine, gercek olculen hiza gore
         // hesaplanan pencere boyutu kullaniliyor (bkz. ADCSampleTask'taki
@@ -508,18 +518,26 @@ static void vADCReadTask(void *pvParameters)
         // decimasyonsuz) rapor/karsilastirma icin hala mevcut ama artik
         // burada cagrilmiyor.
         float vrms = calculateVRMSDecimated(adc_samples_buffer, window_samples, ADC_DECIMATION_FACTOR);
-        PRINTF("vrms is: %f\r\n", vrms);
+        if (now_us - vrms_print_last_us >= 1000000)
+        {
+            PRINTF("vrms is: %f\r\n", vrms);
+            vrms_print_last_us = now_us;
+        }
 
         // BLE (kullanicinin istegiyle): periyodik max/min/mean'in disinda,
-        // HER pencerede (saniyede birkac kere) taze hesaplanan ham VRMS
-        // degerini de anlik olarak disariya veriyoruz.
+        // HER pencerede (artik saniyede 1 - bkz. ADCSampleTask'taki notify
+        // degisikligi) taze hesaplanan ham VRMS degerini de anlik olarak
+        // disariya veriyoruz.
         vrms_instant = vrms;
         send_vrms_instant_indication();
 
 #if CONF_THRESHOLD_ENABLED || CONF_THRESHOLD_PIN_ENABLED
         uint16_t variance = calculateVariance(adc_samples_buffer, window_samples);
 #endif
-        calculateVRMSValuesPerSecond(vrms_values_per_second, adc_samples_buffer, window_samples, SAMPLE_SIZE_PER_VRMS_CALC, bias_voltage);
+        // bias_voltage KALDIRILDI (bkz. adc.c) - calculateVRMS() bu parametreyi
+        // zaten yoksayiyordu (self-referencing yontem), imza uyumlulugu icin
+        // sadece 0.0f geciliyor.
+        calculateVRMSValuesPerSecond(vrms_values_per_second, adc_samples_buffer, window_samples, SAMPLE_SIZE_PER_VRMS_CALC, 0.0f);
 
         vrms_buffer[(vrms_buffer_count++) % VRMS_BUFFER_SIZE] = vrms;
 

@@ -31,9 +31,8 @@ static const char *TAG = "adc";
 #define ASSUMED_REFERENCE_VOLTAGE_PER_COUNT_FALLBACK (3.3f / 4095.0f)
 
 static adc_oneshot_unit_handle_t s_adc_handle = NULL;
-static adc_channel_t s_main_channel, s_bias_channel;
+static adc_channel_t s_main_channel;
 static adc_cali_handle_t s_main_cali = NULL;
-static adc_cali_handle_t s_bias_cali = NULL;
 
 // Kalibre egim (V/sayim) - initADC() sirasinda BIR KERE hesaplanip
 // onbelleklenir (ekip arkadasinin optimizasyonu: her ornekte kalibrasyon
@@ -105,7 +104,8 @@ uint8_t initADC(void)
     }
 
     setup_adc_channel(ADC_READ_PIN, &s_main_channel, &s_main_cali);
-    setup_adc_channel(ADC_BIAS_PIN, &s_bias_channel, &s_bias_cali);
+    // ⚠️ ADC_BIAS_PIN (GPIO4) kanal kurulumu KALDIRILDI - self-referencing
+    // RMS'de hic kullanilmiyordu, kullanicinin/hocanin istegiyle cikarildi.
 
     s_main_volts_per_count = cali_volts_per_count(s_main_cali);
 
@@ -185,13 +185,6 @@ uint16_t readMainADCSample(void)
 {
     int raw = 0;
     adc_oneshot_read(s_adc_handle, s_main_channel, &raw);
-    return (uint16_t)raw;
-}
-
-uint16_t readBiasADCSample(void)
-{
-    int raw = 0;
-    adc_oneshot_read(s_adc_handle, s_bias_channel, &raw);
     return (uint16_t)raw;
 }
 
@@ -441,8 +434,12 @@ void calculateVRMSValuesPerSecond(float *vrms_buffer, uint16_t *sample_buf, size
         vrms_buffer[i / sample_size_per_vrms_calc] = vrms;
     }
 
-    PRINTF("VRMS VALUES PER SECOND:");
-    printBufferFloat(vrms_buffer, buffer_size / sample_size_per_vrms_calc);
+    // GECICI TANI SUSTURMA: bu satir her pencerede (saniyede birkac kere)
+    // 9 sayilik bir liste basip ekrani kalabalik ediyordu, okunabilirlik
+    // icin susturuldu - hesaplama (vrms_buffer'in doldurulmasi) aynen
+    // devam ediyor, sadece ekrana yazma kismi kapatildi.
+    // PRINTF("VRMS VALUES PER SECOND:");
+    // printBufferFloat(vrms_buffer, buffer_size / sample_size_per_vrms_calc);
 }
 
 void setAmplitudeChangeParameters(struct AmplitudeChangeTimerCallbackParameters *ac_data, float *vrms_values_buffer, uint16_t variance, size_t adc_fifo_size, size_t vrms_values_buffer_size_bytes)

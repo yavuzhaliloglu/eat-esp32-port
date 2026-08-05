@@ -115,8 +115,12 @@
 #define VRMS_BUFFER_SIZE 900
 // TEYITLI: adc_vrms_test projesinde dogrulandi (Asama 2 Madde 5-6)
 #define ADC_READ_PIN 3
+// GPIO4 fiziksel olarak "bias/referans" pini olarak hocadan geldi, ama
+// self-referencing RMS yontemine gecince yazilimda hic kullanilmiyordu -
+// ADC_BIAS_PIN sabiti donanim/pin haritasi referansi olarak duruyor, ama
+// bu pini okuyan kod (readBiasADCSample/BIAS_SAMPLE_SIZE) kullanicinin/
+// hocanin istegiyle tamamen kaldirildi.
 #define ADC_BIAS_PIN 4
-#define BIAS_SAMPLE_SIZE 2000
 // Sebeke frekansi - pencere boyutunu gercek olculen ornekleme hizina gore
 // tam sayida periyoda oturtmak icin (bkz. adc.c/initADC()).
 #define LINE_FREQ_HZ 50.0f
