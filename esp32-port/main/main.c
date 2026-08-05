@@ -573,7 +573,7 @@ static void vGetRTCTask(void *pvParameters)
 
         if (getTimePt7c4338(&current_time))
         {
-            PRINTF("WRITE DEBUG TASK: The Time is: %02u.%02u.20%02u %02u:%02u:%02u\r\n",
+            PRINTF("NEW FIRMWARE WRITE DEBUG TASK: The Time is: %02u.%02u.20%02u %02u:%02u:%02u\r\n",
                    current_time.day, current_time.month, current_time.year,
                    current_time.hour, current_time.min, current_time.sec);
         }
