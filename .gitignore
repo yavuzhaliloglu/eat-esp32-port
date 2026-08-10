@@ -13,3 +13,8 @@ node_modules/
 # Editor / OS
 .DS_Store
 *.swp
+
+# field_logger.py'nin izole Python ortami + urettigi saha kayitlari - kisiye
+# ozel/yeniden uretilebilir, repoya girmemeli
+rp2040-original/testfiles/.venv/
+rp2040-original/testfiles/*.xlsx
