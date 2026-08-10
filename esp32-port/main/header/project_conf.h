@@ -33,7 +33,8 @@
 // production date of device (yy-mm-dd)
 #define PRODUCTION_DATE "26-05-22"
 // Debugs
-#define DEBUG 1
+// ⚠️ Kullanicinin istegiyle 0 yapildi - monitorde PRINTF ciktisi istenmiyor.
+#define DEBUG 0
 
 // vrms multiplier value
 // KARAR: 150 -> 148.8 olarak guncellendi. Eski deger hocanin "ayni kalsin,

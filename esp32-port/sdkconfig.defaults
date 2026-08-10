@@ -40,3 +40,11 @@ CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=n
 # olarak eski (bir onceki calisan) yazilima geri doner. Kotu bir guncellemenin
 # cihazi kalici olarak "tugla"ya cevirmesini onleyen ek bir guvenlik katmani.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# Kullanicinin istegiyle: monitorde artik HICBIR log cikmiyor. Bizim kendi
+# PRINTF()'lerimiz zaten project_conf.h'deki DEBUG=0 ile kapatildi - bu iki
+# satir da ESP-IDF'in KENDI ESP_LOGI/ESP_LOGE/ESP_LOGW ciktilarini (BLE yigini,
+# bizim main.c/adc.c/ota.c/gatt_svc.c'deki ESP_LOG* cagrilari) ve en erken
+# acilis (2. asama bootloader) mesajlarini susturuyor.
+CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
