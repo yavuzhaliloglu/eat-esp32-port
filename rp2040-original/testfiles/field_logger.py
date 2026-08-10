@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 Saha testi icin surekli olcum kaydedici.
 
 Ne yapiyor:
@@ -86,12 +86,21 @@ def calculate_bcc(data):
     return xor
 
 
+PERMISSION_DENIED = "__PERMISSION_DENIED__"
+
+
 def probe_port(port_name, timeout=1.5):
     """Bu portta gercek bir sayac var mi diye dener. Varsa kimlik yanitini
-    (metin olarak) doner, yoksa None."""
+    (metin olarak) doner. Port acilamiyorsa (izin sorunu - Linux'ta baska bir
+    bilgisayarda ilk kez kullanildiginda COK sik karsilasilan bir durum)
+    PERMISSION_DENIED doner - bu, "yanit yok" ile KARISTIRILMAMASI gereken
+    ayri/net bir durum, cunku cozumu tamamen farkli (paket kurmak degil,
+    kullanici izni)."""
     try:
         ser = serial.Serial(port_name, baudrate=300, bytesize=7, parity="E", stopbits=1, timeout=timeout)
-    except (serial.SerialException, OSError):
+    except (serial.SerialException, OSError) as e:
+        if "Permission denied" in str(e) or "Access is denied" in str(e) or "EACCES" in str(e):
+            return PERMISSION_DENIED
         return None
     try:
         ser.reset_input_buffer()
@@ -122,10 +131,20 @@ def choose_port():
             print("Hic seri port bulunamadi. Kabloyu/adaptörü kontrol et.")
         else:
             for i, (p, info) in enumerate(results, start=1):
-                if info:
+                if info == PERMISSION_DENIED:
+                    print(f"  {i}) {p.device}  ({p.description})  -> ERISIM REDDEDILDI (izin sorunu, asagiya bak)")
+                elif info:
                     print(f"  {i}) {p.device}  ({p.description})  -> CIHAZ BULUNDU: {info}")
                 else:
                     print(f"  {i}) {p.device}  ({p.description})  -> yanit yok")
+
+            if any(info == PERMISSION_DENIED for _, info in results):
+                print("\n⚠ 'ERISIM REDDEDILDI' gordugun port(lar) icin - bu paket eksikligi DEGIL, Linux'un")
+                print("  kullanici izin sistemi. Duzeltmek icin (port adini kendi durumuna gore degistir):")
+                print("    1) ls -la /dev/ttyUSB0            (hangi grubun sahibi oldugunu gorursun)")
+                print("    2) sudo usermod -aG dialout $USER (bazi dagitimlarda grup adi 'uucp' olabilir)")
+                print("    3) COIKIS YAP VE TEKRAR GIRIS YAP (ya da reboot) - hemen etkilemez")
+                print("  Hizli/gecici test icin: sudo chmod 666 /dev/ttyUSB0")
 
         rescan_opt = len(results) + 1
         print(f"  {rescan_opt}) Tekrar tara (kablo yeni takildiysa)")
