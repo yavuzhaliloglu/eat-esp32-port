@@ -478,7 +478,7 @@
         <span class="label">VRMS eşik değeri</span>
         <div class="value-wrap">
           <span class="value editable-value" id="s-threshold">—</span>
-          <input class="value-input" id="input-s-threshold" inputmode="decimal" style="display:none">
+          <input class="value-input" id="input-s-threshold" inputmode="numeric" style="display:none">
           <button class="icon-btn edit-icon" id="edit-icon-s-threshold" title="Düzenle">✎</button>
           <button class="icon-btn confirm-icon" id="confirm-icon-s-threshold" title="Kaydet">✓</button>
         </div>
@@ -578,7 +578,7 @@
         <span class="label">VRMS eşik değeri</span>
         <div class="value-wrap">
           <span class="value editable-value" id="l-threshold">—</span>
-          <input class="value-input" id="input-l-threshold" inputmode="decimal" style="display:none">
+          <input class="value-input" id="input-l-threshold" inputmode="numeric" style="display:none">
           <button class="icon-btn edit-icon" id="edit-icon-l-threshold" title="Düzenle">✎</button>
           <button class="icon-btn confirm-icon" id="confirm-icon-l-threshold" title="Kaydet">✓</button>
         </div>
@@ -1200,6 +1200,15 @@ async function confirmEdit(prefix, field) {
   const input = document.getElementById("input-" + prefix + field);
   const value = input.value.trim();
   if (value) {
+    // ⚠️ Threshold sadece tam sayi kabul ediyor (hem RS485 hem BLE firmware
+    // tarafinda) - noktali bir deger ("1.15" gibi) yazilirsa BLE tarafinda
+    // atoi() ondalik kismi SESSIZCE atip "1" kaydediyordu, kullanici "1.15
+    // ayarladim" saniyor ama gercekte "1" oluyordu. Burada acikca reddedip
+    // duzeltmesini istiyoruz.
+    if (field === "threshold" && !/^\d+$/.test(value)) {
+      showError("VRMS eşik değeri sadece tam sayı olabilir (örn. 25) - ondalık nokta kabul edilmiyor.");
+      return;
+    }
     try {
       const chr = await getWritableChr(field);
       await chr.writeValue(encoder.encode(value));
