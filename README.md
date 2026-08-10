@@ -66,6 +66,16 @@ Web sayfası:
 - HTTPS üzerinden servis edilmesi lazım (Web Bluetooth localhost hariç HTTP'ye izin vermiyor) - biz Vercel'e deploy ettik, GitHub Pages ya da benzeri statik bir hosting de olur
 - `web-ble/index.html` tek başına çalışan bir dosya, build adımı yok
 
+Saha testi script'i (`field_logger.py`):
+- `.venv/` bilerek repoya eklenmedi (kişiye/makineye özel), her klonda bir kere kurulması lazım:
+  ```
+  cd rp2040-original/testfiles
+  python3 -m venv .venv
+  ./.venv/bin/pip install -r requirements.txt
+  ./.venv/bin/python3 field_logger.py
+  ```
+- CachyOS/Arch gibi dağıtımlarda sistem Python'una doğrudan `pip install` yapmak engellenmiş olabilir (PEP 668) - bu yüzden sanal ortam kullanıyoruz, sisteme hiç dokunmuyor
+
 ## Eski proje (RP2040) ne yapıyordu
 
 RP2040 tarafında kod header-only bir yapıdaydı (fonksiyon gövdeleri `.h` dosyalarının içindeydi, ayrı `.c` dosyası yoktu). Çift çekirdek kullanılıyordu: bir çekirdek sadece ADC örnekleme yapıyordu, diğerinde ADC hesaplama + UART birlikteydi. Portu, projenin `master` branch'i değil `origin/dev` branch'i üzerinden yaptık - `master` daha eski/basit bir sürümdü, `dev`'de donanım watchdog, kesme tabanlı (interrupt-driven) UART okuma ve derleme zamanı özellik anahtarları (`CONF_*_ENABLED`) gibi üretime çok daha yakın parçalar vardı, bunları taşımak daha mantıklıydı.

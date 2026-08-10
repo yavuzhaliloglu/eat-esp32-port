@@ -14,13 +14,18 @@ Ne yapiyor:
   4) Script kapatilip tekrar acilirsa, AYNI Excel dosyasi varsa onu SILMEZ,
      mevcut satirlarin ALTINA eklemeye devam eder.
 
-Kullanim:
+Kurulum (repo'yu YENI klonlayan biri icin - .venv/ bilerek git'e eklenmedi,
+kisiye/makineye ozel oldugu icin her klonda yeniden kurulmasi gerekiyor):
+  cd rp2040-original/testfiles
+  python3 -m venv .venv
+  ./.venv/bin/pip install -r requirements.txt
+
+Kullanim (kurulumdan sonra, ya da zaten kuruluysa):
   ./.venv/bin/python3 field_logger.py
 
-(pyserial ve openpyxl bu script'in yaninda, .venv/ icinde kurulu - sistem
-Python'una hic dokunulmadi, CachyOS/Arch'in "externally managed environment"
-korumasi yuzunden. Yeni bir yerde calistirilacaksa: python3 -m venv .venv &&
-./.venv/bin/pip install pyserial openpyxl)
+(Sistem Python'una hic dokunulmuyor - CachyOS/Arch gibi dagitimlarin
+"externally managed environment" korumasi yuzunden, bagimliliklar bilerek
+izole bir sanal ortamda tutuluyor.)
 """
 import os
 import sys
