@@ -15,17 +15,22 @@ Ne yapiyor:
      mevcut satirlarin ALTINA eklemeye devam eder.
 
 Kurulum (repo'yu YENI klonlayan biri icin - .venv/ bilerek git'e eklenmedi,
-kisiye/makineye ozel oldugu icin her klonda yeniden kurulmasi gerekiyor):
-  cd rp2040-original/testfiles
-  python3 -m venv .venv
-  ./.venv/bin/pip install -r requirements.txt
+kisiye/makineye ozel oldugu icin her klonda yeniden kurulmasi gerekiyor).
+Once bu klasore gir: cd rp2040-original/testfiles
 
-Kullanim (kurulumdan sonra, ya da zaten kuruluysa):
-  ./.venv/bin/python3 field_logger.py
+  Mac / Linux (terminal):
+    python3 -m venv .venv
+    ./.venv/bin/pip install -r requirements.txt
+    ./.venv/bin/python3 field_logger.py
 
-(Sistem Python'una hic dokunulmuyor - CachyOS/Arch gibi dagitimlarin
-"externally managed environment" korumasi yuzunden, bagimliliklar bilerek
-izole bir sanal ortamda tutuluyor.)
+  Windows (cmd):
+    python -m venv .venv
+    .venv\Scripts\pip.exe install -r requirements.txt
+    .venv\Scripts\python.exe field_logger.py
+
+(Sistem Python'una hic dokunulmuyor - bagimliliklar bilerek izole bir sanal
+ortamda tutuluyor; CachyOS/Arch gibi dagitimlarda "externally managed
+environment" korumasini da bu sekilde asiyoruz.)
 """
 import os
 import sys

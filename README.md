@@ -67,13 +67,22 @@ Web sayfası:
 - `web-ble/index.html` tek başına çalışan bir dosya, build adımı yok
 
 Saha testi script'i (`field_logger.py`):
-- `.venv/` bilerek repoya eklenmedi (kişiye/makineye özel), her klonda bir kere kurulması lazım:
+- `.venv/` bilerek repoya eklenmedi (kişiye/makineye özel), her klonda bir kere kurulması lazım. Önce klasöre gir: `cd rp2040-original/testfiles`, sonra işletim sistemine göre:
+
+  **Mac / Linux (terminal):**
   ```
-  cd rp2040-original/testfiles
   python3 -m venv .venv
   ./.venv/bin/pip install -r requirements.txt
   ./.venv/bin/python3 field_logger.py
   ```
+
+  **Windows (cmd):**
+  ```
+  python -m venv .venv
+  .venv\Scripts\pip.exe install -r requirements.txt
+  .venv\Scripts\python.exe field_logger.py
+  ```
+
 - CachyOS/Arch gibi dağıtımlarda sistem Python'una doğrudan `pip install` yapmak engellenmiş olabilir (PEP 668) - bu yüzden sanal ortam kullanıyoruz, sisteme hiç dokunmuyor
 
 ## Eski proje (RP2040) ne yapıyordu
