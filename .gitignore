@@ -18,3 +18,4 @@ node_modules/
 # ozel/yeniden uretilebilir, repoya girmemeli
 rp2040-original/testfiles/.venv/
 rp2040-original/testfiles/*.xlsx
+rp2040-original/testfiles/*.txt

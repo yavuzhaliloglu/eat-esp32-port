@@ -25,7 +25,7 @@ esp32-meter-port/
 │   ├── main.c
 │   ├── header/                  .h dosyaları (+ md5.c/h, eski OTA kalıntısı)
 │   └── testfiles/               Orijinal cihazı test etmek için kullanılan Python script'leri (readout-mode.py, programming-mode.py, ...)
-│       └── field_logger.py       Saha testi icin surekli RS485 okuma + Excel'e kayit script'i (port secimi, adaptor/cihaz kopmasi durumunda otomatik tekrar deneme, .venv icinde izole bagimliliklar)
+│       └── field_logger.py       Saha testi icin surekli RS485 okuma + Excel VE text dosyasina AYNI ANDA kayit script'i (port secimi, adaptor/cihaz kopmasi durumunda otomatik tekrar deneme, .venv icinde izole bagimliliklar)
 │
 └── web-ble/                    Telefon/tarayıcıdan BLE ile cihaza bağlanan Web Bluetooth sayfası
     ├── index.html

@@ -9,10 +9,11 @@ Ne yapiyor:
   2) Kac dakikada bir olcum alinacagini sorar.
   3) O periyotla surekli okuma yapip cihazin verdigi HER ALANI (duz okuma/
      kimlik yaniti, kisa okuma ozet alanlari, uzun okuma esik+reset kayitlari
-     - hepsi) bir Excel (.xlsx) dosyasina TEK TEK, alt alta satir olarak
-     ekler - "PC Tarih/Saat | Okuma Turu | Alan | Deger" formatinda.
-  4) Script kapatilip tekrar acilirsa, AYNI Excel dosyasi varsa onu SILMEZ,
-     mevcut satirlarin ALTINA eklemeye devam eder.
+     - hepsi) TEK TEK, alt alta satir olarak HEM Excel (.xlsx) HEM duz metin
+     (.txt) dosyasina ayni anda ekler - ikisi de birebir ayni veriyi tutar,
+     "PC Tarih/Saat | Okuma Turu | Alan | Deger" formatinda.
+  4) Script kapatilip tekrar acilirsa, AYNI dosyalar varsa SILMEZ, mevcut
+     satirlarin ALTINA eklemeye devam eder (hem Excel hem text icin).
 
 Kurulum (repo'yu YENI klonlayan biri icin - .venv/ bilerek git'e eklenmedi,
 kisiye/makineye ozel oldugu icin her klonda yeniden kurulmasi gerekiyor).
@@ -50,6 +51,9 @@ from openpyxl import Workbook, load_workbook
 COMM_REQUEST = b"/?!\r\n"
 BAUD_RATES = [300, 600, 1200, 2400, 4800, 9600, 19200]
 EXCEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saha_test_kayitlari.xlsx")
+# Excel'e yazilan HER satir, aynen bu text dosyasina da yaziliyor - ikisi
+# hep birebir ayni veriyi tutuyor (kullanicinin istegiyle eklendi).
+TEXT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saha_test_kayitlari.txt")
 
 # "Uzun/tidy" format: her tekil deger kendi satirinda - "tek tek alt alta"
 # istegi tam bu yuzden boyle. Bir okuma dongusu (bir "-rm" istegi) tek basina
@@ -255,6 +259,19 @@ def read_meter(port_name, timeout=2.0):
     return identity_text, baud_idx, fields, bcc_ok
 
 
+def log_row(ws, row):
+    """Excel'e VE text dosyasina AYNI satiri ekler - ikisi HER ZAMAN birebir
+    ayni veriyi tutsun diye, butun script boyunca satir eklemenin TEK yolu
+    bu fonksiyon (baska hicbir yerde dogrudan ws.append cagrilmiyor).
+    Text dosyasi "a" (append) modunda aciliyor - Excel'deki gibi ayrica bir
+    "onceki kayitlari oku" adimina gerek yok, dosya yoksa kendisi olusuyor,
+    varsa altina eklenmeye devam ediyor."""
+    ws.append(row)
+    line = "\t".join("" if x is None else str(x) for x in row)
+    with open(TEXT_PATH, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
 def open_or_create_workbook(path):
     if os.path.exists(path):
         wb = load_workbook(path)
@@ -264,7 +281,7 @@ def open_or_create_workbook(path):
         wb = Workbook()
         ws = wb.active
         ws.title = "Olcumler"
-        ws.append(EXCEL_COLUMNS)
+        log_row(ws, EXCEL_COLUMNS)
         print(f"Yeni kayit dosyasi olusturuldu: {path}")
     return wb, ws
 
@@ -335,35 +352,35 @@ def log_full_reading(ws, ts, identity_text, baud_idx, fields, bcc_ok):
     # --- Duz okuma: kimlik/el sikisma yaniti + ondan cikarilan baud rate ---
     # (baud rate protokolde AYRI bir OBIS alani degil, kimlik yanitinin icine
     # gomulu - okunabilir olsun diye ayri satir olarak cikariliyor)
-    ws.append([ts, "Duz Okuma", "Kimlik Yaniti", identity_text])
+    log_row(ws, [ts, "Duz Okuma", "Kimlik Yaniti", identity_text])
     count += 1
     baud_deger = BAUD_RATES[baud_idx] if 0 <= baud_idx < len(BAUD_RATES) else ""
-    ws.append([ts, "Duz Okuma", "Baud Rate (anlasilan)", baud_deger])
+    log_row(ws, [ts, "Duz Okuma", "Baud Rate (anlasilan)", baud_deger])
     count += 1
 
     # --- Kisa okuma: anlik durum ozeti alanlari ---
     for code, ad in KISA_OKUMA_ALANLARI:
         groups = fields.get(code, [])
         deger = groups[0] if groups else ""
-        ws.append([ts, "Kisa Okuma", ad, deger])
+        log_row(ws, [ts, "Kisa Okuma", ad, deger])
         count += 1
 
     # --- Uzun okuma: esik asim kayitlari (bos slotlar dahil, hepsi) ---
     for i in range(1, UZUN_OKUMA_ESIK_SLOT_SAYISI + 1):
         code = f"96.77.4*{i}"
         deger = format_threshold_value(fields.get(code, []))
-        ws.append([ts, "Uzun Okuma - Esik Kaydi", f"Esik Kaydi #{i}", deger])
+        log_row(ws, [ts, "Uzun Okuma - Esik Kaydi", f"Esik Kaydi #{i}", deger])
         count += 1
 
     # --- Uzun okuma: reset/acilis kayitlari (bos slotlar dahil, hepsi) ---
     for i in range(1, UZUN_OKUMA_RESET_SLOT_SAYISI + 1):
         code = f"0.1.2*{i}"
         deger = format_reset_value(fields.get(code, []))
-        ws.append([ts, "Uzun Okuma - Reset Kaydi", f"Reset Kaydi #{i}", deger])
+        log_row(ws, [ts, "Uzun Okuma - Reset Kaydi", f"Reset Kaydi #{i}", deger])
         count += 1
 
     # --- Butunluk kontrolu (BCC) - butun dongu icin bir kere ---
-    ws.append([ts, "Sistem", "BCC Kontrolu", "OK" if bcc_ok else "UYUSMADI (supheli veri)"])
+    log_row(ws, [ts, "Sistem", "BCC Kontrolu", "OK" if bcc_ok else "UYUSMADI (supheli veri)"])
     count += 1
 
     return count
@@ -385,7 +402,16 @@ def main_loop(port_name, interval_minutes):
     interval_s = interval_minutes * 60
     wb, ws = open_or_create_workbook(EXCEL_PATH)
 
-    print(f"\nKayit basladi. Port: {port_name} | periyot: {interval_minutes} dk | dosya: {EXCEL_PATH}")
+    # Excel eskiden beri varsa (devam ediliyor) ama text dosyasi hic yoksa
+    # (bu ozellik yeni eklendigi icin ilk kez calisiyor olabilir), text
+    # dosyasi basliksiz kalmasin diye ayrica kontrol ediyoruz.
+    if not os.path.exists(TEXT_PATH):
+        with open(TEXT_PATH, "a", encoding="utf-8") as f:
+            f.write("\t".join(EXCEL_COLUMNS) + "\n")
+
+    print(f"\nKayit basladi. Port: {port_name} | periyot: {interval_minutes} dk")
+    print(f"Dosyalar: {EXCEL_PATH}")
+    print(f"          {TEXT_PATH}")
     print("Durdurmak icin Ctrl+C.\n")
 
     device_down = False  # cihaz yanit vermiyor durumu (adaptor takili ama meter cevap vermiyor)
@@ -398,7 +424,7 @@ def main_loop(port_name, interval_minutes):
         if not port_exists(port_name):
             ts = now_str()
             print(f"\n[{ts}] ⚠ RS485 adaptoru '{port_name}' portunda artik bulunamiyor - cikarilmis olabilir.")
-            ws.append([ts, "SISTEM", "Durum", "ADAPTOR BAGLANTISI KESILDI"])
+            log_row(ws, [ts, "SISTEM", "Durum", "ADAPTOR BAGLANTISI KESILDI"])
             save_safely(wb)
 
             snapshot = {p.device for p in serial.tools.list_ports.comports()}
@@ -436,7 +462,7 @@ def main_loop(port_name, interval_minutes):
                 # dosyasi binlerce "kopuk" satirla dolmasin diye.
                 print(f"[{ts}] Cihazdan yanit alinamiyor - baglantisi kopmus/elektrigi kesilmis olabilir. "
                       f"Adaptor hala takili, her {DEVICE_RETRY_INTERVAL_S}sn'de bir otomatik tekrar denenecek.")
-                ws.append([ts, "SISTEM", "Durum", "CIHAZ BAGLANTISI KOPTU"])
+                log_row(ws, [ts, "SISTEM", "Durum", "CIHAZ BAGLANTISI KOPTU"])
                 save_safely(wb)
                 device_down = True
             next_tick = time.time() + DEVICE_RETRY_INTERVAL_S
