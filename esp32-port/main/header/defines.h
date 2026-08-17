@@ -92,10 +92,17 @@
 #define WATCHDOG_TASK_STACK_SIZE (2 * 1024)
 
 // RESET PIN
-// TEYITLI: hoca "reset cip alive" dedi, eski vResetTask'in karsiligi
+// TEYITLI: hoca "reset cip alive" dedi, eski vResetTask'in karsiligi.
+// NOT: vResetTask dev'de KALDIRILDI (bkz. main.c) - reset pulse'i artik
+// yazilim atmiyor, harici TPL5010 kendi periyoduyla cihazi resetliyor.
+// Pin tanimi ve init'i dev'deki gibi yerinde birakildi.
 #define RESET_PULSE_PIN 5
 // vResetTask'in bekleme suresi (RTC senkronizasyonu + reset pulse arasi)
 #define INTERVAL_MS 60000
+// Harici TPL5010 watchdog'un cihazi resetlemesi beklenen, boot'tan itibaren gecen sure.
+// TPL5010 direnci ~2 saate ayarli. Bu degerin biraz altinda kalmak guvenlidir cunku
+// TPL5010 zamanlama toleransi nedeniyle reset nominal sureden bir miktar erken gelebilir.
+#define ESTIMATE_RESET_MS (90u * 60u * 1000u) // ~1.5 saat (boot referansli, monotonik saatle olculur)
 
 // THRESHOLD PIN + STATUS LED - ikisi de ayri, birlikte kullaniliyor
 // (dev branch'te bu ikisi HARDWARE_VERSION'a gore birbirini disliyordu,

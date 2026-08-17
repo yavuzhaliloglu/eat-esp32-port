@@ -29,12 +29,15 @@
 #define DEVICE_PASSWORD "12345678"
 // Device software version number
 // TODO: ESP32-C3 portu icin surum numarasi netlesince guncellenecek
-#define SOFTWARE_VERSION "V1.4.1-OTATEST"
+// NOT: dev'deki son commit ile V1.4.0 -> V1.5.0 oldu, port da ayni degere
+// cekildi. Onceki "-OTATEST" eki OTA testinde iki surumu ayirt etmek icin
+// gecici olarak konmustu, dev ile hizalanirken kaldirildi.
+#define SOFTWARE_VERSION "V1.5.0"
 // production date of device (yy-mm-dd)
-#define PRODUCTION_DATE "26-05-22"
+#define PRODUCTION_DATE "26-06-12"
 // Debugs
 // ⚠️ Kullanicinin istegiyle 0 yapildi - monitorde PRINTF ciktisi istenmiyor.
-#define DEBUG 0
+#define DEBUG 1
 
 // vrms multiplier value
 // KARAR: 150 -> 148.8 olarak guncellendi. Eski deger hocanin "ayni kalsin,

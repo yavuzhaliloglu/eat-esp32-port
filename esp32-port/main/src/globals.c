@@ -63,7 +63,7 @@ SemaphoreHandle_t xVRMSLastValuesMutex;
 SemaphoreHandle_t xVRMSThresholdMutex;
 SemaphoreHandle_t xThresholdSetFlagMutex;
 
-const uint16_t pattern_idle[] = {0, 1000};
+const uint16_t pattern_idle[] = {100, 100, 100, 100, 100, 100, 100, 100, 100, 100};
 
 // Hata Desenleri (LED blink pattern'leri, ms cinsinden ac/kapa sureleri)
 const uint16_t led_pattern_uart_not_readable[] = {50, 950};                        // 1 Kisa
@@ -79,7 +79,7 @@ const uint16_t led_pattern_rx_buffer_overflow_isr[] = {50, 50, 50, 50, 50, 50, 2
 const uint16_t led_pattern_stackoverflow[] = {500, 200, 100, 700};
 
 const LedPattern patterns[] = {
-    {pattern_idle, 2},
+    {pattern_idle, 10},
     {led_pattern_uart_not_readable, 2},
     {led_pattern_message_timeout, 2},
     {led_pattern_invalid_request_mode, 4},

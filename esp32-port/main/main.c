@@ -540,15 +540,33 @@ static void vADCReadTask(void *pvParameters)
             VRMS_VALUES_RECORD vrms_values = vrmsSetMinMaxMean(vrms_buffer, vrms_buffer_count);
             PRINTF("ADC READ TASK: calculated VRMS values.\r\n");
 
-            SPIWriteToFlash(&vrms_values);
-            PRINTF("ADC READ TASK: writing flash memory process is completed.\r\n");
+            // Harici TPL5010 reset penceresine yakinsak load profile yazma
+            // ATLANIYOR: kayit tam yazilirken reset gelirse yarim/bozuk bir
+            // blok kalabilir. uptime, boot'tan itibaren gecen monotonik
+            // sureyi verir (dev'deki to_ms_since_boot(get_absolute_time())
+            // karsiligi esp_timer_get_time(), us cinsinden).
+            uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            uint32_t guard_ms = (uint32_t)load_profile_record_period * 60u * 1000u;
 
-            // BLE (Asama 4): vrms_max_last/min/mean gercekten burada
-            // guncelleniyor (SPIWriteToFlash icinde) - RS485'teki 32.7.0/
-            // 52.7.0/72.7.0 ile AYNI kaynak, ayni tazelik/periyot. Abone
-            // bir telefon varsa bildirim de burada gonderiliyor.
-            update_meter_live_data();
-            send_vrms_indication();
+            if (uptime_ms + guard_ms < ESTIMATE_RESET_MS)
+            {
+                SPIWriteToFlash(&vrms_values);
+                PRINTF("ADC READ TASK: writing flash memory process is completed.\r\n");
+
+                // BLE (Asama 4): vrms_max_last/min/mean gercekten burada
+                // guncelleniyor (SPIWriteToFlash icinde) - RS485'teki 32.7.0/
+                // 52.7.0/72.7.0 ile AYNI kaynak, ayni tazelik/periyot. Abone
+                // bir telefon varsa bildirim de burada gonderiliyor.
+                // Yazma atlandiginda bu degerler de guncellenmedigi icin
+                // bildirim gonderilmiyor (eski degeri tekrar yollamamak icin).
+                update_meter_live_data();
+                send_vrms_indication();
+            }
+            else
+            {
+                PRINTF("ADC READ TASK: reset window is close (uptime=%lu ms), load profile skipped.\r\n",
+                       (unsigned long)uptime_ms);
+            }
 
             memset(vrms_buffer, 0, sizeof(vrms_buffer));
             vrms_buffer_count = 0;
@@ -587,24 +605,6 @@ static void vGetRTCTask(void *pvParameters)
         // zaten 1sn'de bir calistigi icin ek bir gorev/zamanlayiciya
         // gerek kalmadi.
         send_status_indication();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ResetTask - dev'deki vResetTask ile ayni (RTC senkronu + reset pulse).
-// rtc_set_datetime() cagrisi KALDIRILDI (bkz. uart.c'deki ayni not - Pico
-// SDK'ya ozel ikinci/dahili RTC'nin ESP32'de karsiligi yok).
-// ---------------------------------------------------------------------------
-static void vResetTask(void *pvParameters)
-{
-    (void)pvParameters;
-    while (1)
-    {
-        getTimePt7c4338(&current_time);
-        gpio_set_level(RESET_PULSE_PIN, 1);
-        vTaskDelay(pdMS_TO_TICKS(10));
-        gpio_set_level(RESET_PULSE_PIN, 0);
-        vTaskDelay(pdMS_TO_TICKS(INTERVAL_MS));
     }
 }
 
@@ -854,7 +854,6 @@ void app_main(void)
     xTaskCreate(vADCSampleTask, "ADCSampleTask", ADC_SAMPLE_TASK_STACK_SIZE, NULL, 6, &xADCSampleHandle);
     xTaskCreate(vGetRTCTask, "WriteDebugTask", WRITE_DEBUG_TASK_STACK_SIZE, NULL, 5, &xGetRTCHandle);
     xTaskCreate(vUARTTask, "UARTTask", UART_TASK_STACK_SIZE, NULL, 4, &xUARTHandle);
-    xTaskCreate(vResetTask, "ResetTask", RESET_TASK_STACK_SIZE, NULL, 7, &xResetHandle);
     xTaskCreate(vStatusLedTask, "StatusLedTask", STATUS_LED_TASK_STACK_SIZE, NULL, 1, &xStatusLedHandle);
 
     // Tek cekirdek oldugu icin core affinity ayarina gerek yok (bkz. dosya
