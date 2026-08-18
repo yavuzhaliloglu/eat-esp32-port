@@ -272,10 +272,11 @@ void set_device_baud_rate(uint8_t b_rate_hex)
     uart_set_baudrate(UART_PORT_NUM, set_baud_rate);
 }
 
-static uint8_t *get_serial_number_ptr()
-{
-    return (uint8_t *)serial_number;
-}
+// ⚠️ get_serial_number_ptr() KALDIRILDI: eskiden flash'tan okunmus RAM
+// kopyasinin (serial_number global'i) adresini donduruyordu. Seri no artik
+// dogrudan DEVICE_SERIAL_NUMBER makrosundan geliyor (derleme zamani sabiti),
+// dolayisiyla ne global'e ne de bir isaretciye gerek var - bkz. spiflash.c'de
+// addSerialNumber()'in kaldirildigi yerdeki not.
 
 void set_init_baud_rate()
 {
@@ -288,21 +289,14 @@ void set_init_baud_rate()
 bool control_serial_number(uint8_t *identification_req_buf, size_t req_size)
 {
     uint8_t i;
-    uint8_t *serial_num_ptr = get_serial_number_ptr();
-    uint8_t identification_serial_number_buf_without_flag[SERIAL_NUMBER_SIZE + 1];
-    uint8_t identification_serial_number_buf_with_flag[SERIAL_NUMBER_SIZE + 1 + SERIAL_NUMBER_FLAG_SIZE];
 
-    memset(identification_serial_number_buf_without_flag, 0, sizeof(identification_serial_number_buf_without_flag));
-    memset(identification_serial_number_buf_with_flag, 0, sizeof(identification_serial_number_buf_with_flag));
-
-    memcpy(identification_serial_number_buf_without_flag, serial_num_ptr, SERIAL_NUMBER_SIZE);
-
-    memcpy(identification_serial_number_buf_with_flag, (uint8_t *)"ALP", SERIAL_NUMBER_FLAG_SIZE);
-    memcpy(identification_serial_number_buf_with_flag + SERIAL_NUMBER_FLAG_SIZE, serial_num_ptr, SERIAL_NUMBER_SIZE);
-
-    if (serial_num_ptr == NULL || identification_req_buf == NULL)
+    // NULL kontrolu artik EN BASTA: eskiden bu kontrol, isaretciyi zaten
+    // kullanan memcpy'lardan SONRA geliyordu (yani NULL gelseydi kontrole
+    // varmadan cokerdi). Seri no isaretcisi ortadan kalktigi icin geriye
+    // sadece gelen mesaj tamponunun kontrolu kaldi.
+    if (identification_req_buf == NULL)
     {
-        PRINTF("Serial number pointer is NULL!\n");
+        PRINTF("Identification request buffer is NULL!\n");
         return false;
     }
 
@@ -322,8 +316,13 @@ bool control_serial_number(uint8_t *identification_req_buf, size_t req_size)
 
     identification_req_buf++;
 
-    if (strncmp((char *)identification_req_buf, (char *)identification_serial_number_buf_without_flag, SERIAL_NUMBER_SIZE) == 0 ||
-        strncmp((char *)identification_req_buf, (char *)identification_serial_number_buf_with_flag, SERIAL_NUMBER_SIZE + SERIAL_NUMBER_FLAG_SIZE) == 0)
+    // Kabul edilen iki bicim, derleme zamaninda string birlestirmesiyle
+    // olusuyor (METER_FLAG_CODE zaten "ALP") - eskiden bu iki dizge her
+    // cagride stack'te memcpy ile kuruluyordu, artik hicbir tampon yok:
+    //   "612400080"    -> bayraksiz
+    //   "ALP612400080" -> bayrak onekli
+    if (strncmp((char *)identification_req_buf, DEVICE_SERIAL_NUMBER, SERIAL_NUMBER_SIZE) == 0 ||
+        strncmp((char *)identification_req_buf, METER_FLAG_CODE DEVICE_SERIAL_NUMBER, SERIAL_NUMBER_FLAG_SIZE + SERIAL_NUMBER_SIZE) == 0)
     {
         PRINTF("Serial number is correct.\n");
         return true;
@@ -356,9 +355,26 @@ uint8_t exract_baud_rate_and_mode_from_message(uint8_t *msg_buf, size_t msg_len,
 // Uzun okuma icin ek kayitlar (esik asim + reset kayitlari)
 // ---------------------------------------------------------------------------
 
+// Esik asim kayitlari: aktif sektordeki SON 10 kayit, eskiden yeniye dogru
+// (*1 = en eski, *10 = en yeni) gonderilir - reset kayitlari (0.1.2*N,
+// send_reset_dates) ile AYNI kural. Eskiden bu fonksiyon sektorun ILK 10
+// kaydini okuyup indeksi 10'dan 1'e AZALARAK yaziyordu; yani hem yanlis
+// pencereyi (kayit sayisi 10'u gectiginde en yeni kayitlar hic gorunmuyordu)
+// hem de ters indeks sirasini veriyordu.
+//
+// KISIT (bilerek): pencere sadece AKTIF sektor (th_sector_data) icinde
+// aranir. Sektor yeni degistiyse ve icinde 10'dan az kayit varsa, bir onceki
+// sektordeki daha eski kayitlarla tamamlanmaz - bos slotlar sondaki
+// indekslerde "00-00-00" olarak gider (yine send_reset_dates ile ayni
+// davranis). Zaten th_flash_buf boot'ta flash'tan geri okunmadigi icin
+// (bkz. adc.c/writeThresholdRecord'un basindaki not) sektorler arasi
+// gecmis butunlugu su an garanti degil.
 void send_threshold_records(uint8_t *xor_result)
 {
-    const size_t total_size = FLASH_RECORD_SIZE * THRESHOLD_RECORD_OBIS_COUNT;
+    // Son 10 kaydi bulmak icin sektorun TAMAMI taranmak zorunda. 4096
+    // byte'lik bu dizi, UARTTask'in stack'ini tuketmemek icin `static` -
+    // bkz. send_reset_dates'teki ayni notta anlatilan stack tasmasi.
+    static uint8_t threshold_sector[FLASH_SECTOR_SIZE];
     uint8_t threshold_records_raw[FLASH_RECORD_SIZE * THRESHOLD_RECORD_OBIS_COUNT];
     uint8_t buffer[48] = {0};
     char year[3] = {0};
@@ -390,7 +406,30 @@ void send_threshold_records(uint8_t *xor_result)
         // okuma ve yazma farkli fiziksel sektorlere baktigi icin RS485
         // uzerinden hep bos/eski veri gorunuyordu. Duzeltme: okuma da
         // th_sector_data'yi kullanmaya basladi.
-        esp_partition_read(threshold_rec_part, (size_t)th_sector_data * FLASH_SECTOR_SIZE, threshold_records_raw, total_size);
+        esp_partition_read(threshold_rec_part, (size_t)th_sector_data * FLASH_SECTOR_SIZE, threshold_sector, FLASH_SECTOR_SIZE);
+
+        // Kayitlar sektorun basindan itibaren sirayla yazilir (bkz. adc.c/
+        // writeThresholdRecord); ilk BOS kaydin offset'i, ayni zamanda
+        // yazilmis verinin bittigi yerdir.
+        uint32_t end_offset = 0;
+        while (end_offset < FLASH_SECTOR_SIZE)
+        {
+            if (threshold_sector[end_offset] == 0x00 || threshold_sector[end_offset] == 0xFF)
+            {
+                break;
+            }
+            end_offset += FLASH_RECORD_SIZE;
+        }
+
+        // Sondan geriye dogru 10 kayitlik pencere; 10'dan az kayit varsa
+        // bastan itibaren ne varsa o alinir (kalan slotlar sifir kalir ve
+        // asagida "bos kayit" olarak yazilir).
+        uint32_t start_offset = (end_offset > sizeof(threshold_records_raw))
+                                    ? (end_offset - sizeof(threshold_records_raw))
+                                    : 0;
+
+        memcpy(threshold_records_raw, threshold_sector + start_offset, end_offset - start_offset);
+
         xSemaphoreGive(xFlashMutex);
     }
     else
@@ -401,7 +440,9 @@ void send_threshold_records(uint8_t *xor_result)
         return;
     }
 
-    for (size_t i = 0, idx = THRESHOLD_RECORD_OBIS_COUNT; i < THRESHOLD_RECORD_OBIS_COUNT; i++, idx--)
+    // Indeks 1'den THRESHOLD_RECORD_OBIS_COUNT'a ARTARAK ilerler ve bellekteki
+    // sira zaten kronolojik oldugu icin *1 en eski, *10 en yeni kayittir.
+    for (size_t i = 0, idx = 1; i < THRESHOLD_RECORD_OBIS_COUNT; i++, idx++)
     {
         size_t offset = i * FLASH_RECORD_SIZE;
 
@@ -555,7 +596,7 @@ void send_readout_message(uint8_t request_mode)
 
     uart_putc_esp(STX);
 
-    result = snprintf(readout_line_buffer, sizeof(readout_line_buffer), "0.0.0(%s)\r\n", serial_number);
+    result = snprintf(readout_line_buffer, sizeof(readout_line_buffer), "0.0.0(%s)\r\n", DEVICE_SERIAL_NUMBER);
     bccGenerate((uint8_t *)readout_line_buffer, result, &readout_xor);
     uart_puts_esp(readout_line_buffer);
 
@@ -627,7 +668,7 @@ void send_programming_acknowledgement()
 
     memset(ack_buff, 0, sizeof(ack_buff));
 
-    int result = snprintf((char *)ack_buff, sizeof(ack_buff), "%cP0%c(%s)%c", SOH, STX, serial_number, ETX);
+    int result = snprintf((char *)ack_buff, sizeof(ack_buff), "%cP0%c(%s)%c", SOH, STX, DEVICE_SERIAL_NUMBER, ETX);
     if (result >= (int)sizeof(ack_buff))
     {
         sendErrorMessage((char *)"ACKBUFOVERFLOW");
@@ -972,7 +1013,7 @@ void readSerialNumber()
     char buffer[22] = {0};
     uint8_t xor_result = 0x02;
 
-    int result = snprintf((char *)buffer, sizeof(buffer), "%c0.0.0(%s)%c", 0x02, serial_number, 0x03);
+    int result = snprintf((char *)buffer, sizeof(buffer), "%c0.0.0(%s)%c", 0x02, DEVICE_SERIAL_NUMBER, 0x03);
     if (result >= (int)sizeof(buffer))
     {
         PRINTF("READSERIALNUMBER: Buffer Overflow! Sending NACK.\n");

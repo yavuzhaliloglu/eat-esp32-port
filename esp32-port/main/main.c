@@ -784,10 +784,11 @@ void app_main(void)
 
     checkSectorContent();
     checkThresholdContent();
-    addSerialNumber();
+    // addSerialNumber() cagrisi KALDIRILDI - seri no flash'a yazilmiyor artik,
+    // DEVICE_SERIAL_NUMBER makrosundan geliyor (bkz. spiflash.c'deki not).
     getFlashContents();
-    ESP_LOGI(TAG, "Flash icerigi okundu: sector_data=%d, th_sector_data=%d, vrms_threshold=%d, serial_number='%s'",
-             sector_data, th_sector_data, vrms_threshold, serial_number);
+    ESP_LOGI(TAG, "Flash icerigi okundu: sector_data=%d, th_sector_data=%d, vrms_threshold=%d, serial_number='%s' (makro)",
+             sector_data, th_sector_data, vrms_threshold, DEVICE_SERIAL_NUMBER);
 
     if (!getTimePt7c4338(&current_time))
     {

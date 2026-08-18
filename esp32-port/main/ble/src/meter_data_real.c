@@ -43,7 +43,8 @@ static char load_profile_buf[16];
 static char rtc_time_buf[40];
 static char baud_rate_buf[16] = "300";
 
-static char serial_number_buf[24];
+// serial_number_buf KALDIRILDI - get_serial_number_str() artik dogrudan
+// DEVICE_SERIAL_NUMBER makrosunu donduruyor, kopyalanacak bir sey yok.
 static char firmware_version_buf[16];
 static char production_date_buf[16];
 
@@ -277,8 +278,11 @@ void set_rtc_time_str(const uint8_t *data, uint16_t len)
 
 const char *get_serial_number_str(void)
 {
-    snprintf(serial_number_buf, sizeof(serial_number_buf), "%s", (const char *)serial_number);
-    return serial_number_buf;
+    // Seri no artik flash'tan okunan RAM kopyasindan degil, dogrudan
+    // DEVICE_SERIAL_NUMBER makrosundan geliyor (bkz. spiflash.c'deki not).
+    // Makro derleme zamani sabiti oldugu icin ara bir tampona kopyalamaya
+    // da gerek yok - dogrudan donduruluyor.
+    return DEVICE_SERIAL_NUMBER;
 }
 
 const char *get_firmware_version_str(void)

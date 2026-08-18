@@ -187,9 +187,8 @@ void getFlashContents()
     const esp_partition_t *lp_sector_part = get_partition(PARTITION_LABEL_LP_SECTOR);
     const esp_partition_t *load_profile_part = get_partition(PARTITION_LABEL_LOAD_PROFILE);
     const esp_partition_t *threshold_prm_part = get_partition(PARTITION_LABEL_THRESHOLD_PRM);
-    const esp_partition_t *serial_num_part = get_partition(PARTITION_LABEL_SERIAL_NUM);
 
-    if (lp_sector_part == NULL || load_profile_part == NULL || threshold_prm_part == NULL || serial_num_part == NULL)
+    if (lp_sector_part == NULL || load_profile_part == NULL || threshold_prm_part == NULL)
     {
         return;
     }
@@ -208,8 +207,10 @@ void getFlashContents()
     vrms_threshold = (th_buf[0] == 0xFFFF) ? vrms_threshold : th_buf[0];
     th_sector_data = (th_buf[1] == 0xFFFF) ? 0 : th_buf[1];
 
-    // set serial number
-    esp_partition_read(serial_num_part, 0, serial_number, SERIAL_NUMBER_SIZE);
+    // Seri no ARTIK FLASH'TAN OKUNMUYOR: DEVICE_SERIAL_NUMBER makrosu
+    // (project_conf.h) her yerde dogrudan kullaniliyor - bkz. uart.c'deki
+    // control_serial_number/readSerialNumber. "serial_num" partition'i
+    // tabloda duruyor ama artik hic okunmuyor/yazilmiyor.
 
     PRINTF("GETFLASHCONTENTS: vrms threshold value is: %d\n", vrms_threshold);
     PRINTF("GETFLASHCONTENTS: flash sector is: %d\n", sector_data);
@@ -1140,41 +1141,21 @@ void writeThresholdRecordsSectorToFlash(uint16_t sector_val)
 }
 
 // ============================================================================
-// ASAMA 4: seri no / reset kaydi / ani degisim kaydi
+// ASAMA 4: reset kaydi / ani degisim kaydi
 // ============================================================================
 
-// This function adds serial number to flash area (sadece bos ise - ilk acilis)
-void addSerialNumber()
-{
-    PRINTF("ADDSERIALNUMBER: entered addserialnumber function.\n");
-
-    const esp_partition_t *serial_num_part = get_partition(PARTITION_LABEL_SERIAL_NUM);
-    if (serial_num_part == NULL)
-    {
-        return;
-    }
-
-    uint8_t first_byte = 0xFF;
-    esp_partition_read(serial_num_part, 0, &first_byte, sizeof(first_byte));
-
-    if (first_byte == 0xFF)
-    {
-        PRINTF("ADDSERIALNUMBER: serial number is going to be added.\n");
-
-        // Yazma boyutu 4'un kati olmali (min 4 byte hizalama kisiti) - 9 byte
-        // seri no + null-terminator 10 eder, 12'ye (4'un kati) yuvarliyoruz.
-        // memcpy kullanildi (strncpy degil): DEVICE_SERIAL_NUMBER tam olarak
-        // SERIAL_NUMBER_SIZE (9) karakter oldugu icin strncpy null-terminator
-        // eklemiyor ve derleyici bunu "kesme" (truncation) hatasi sayiyor -
-        // buf zaten {0} ile sifirlanmis oldugu icin memcpy ile ayni sonucu
-        // (ve dogal null-terminator'u) uyarisiz aliyoruz.
-        uint8_t buf[12] = {0};
-        memcpy(buf, DEVICE_SERIAL_NUMBER, SERIAL_NUMBER_SIZE);
-
-        esp_partition_erase_range(serial_num_part, 0, FLASH_SECTOR_SIZE);
-        esp_partition_write(serial_num_part, 0, buf, sizeof(buf));
-    }
-}
+// ⚠️ addSerialNumber() KALDIRILDI. Eskiden seri no ilk acilista "serial_num"
+// partition'ina yazilir, sonraki her acilista oradan RAM'e okunurdu. Sorun:
+// fonksiyon sadece alan BOS (0xFF) iken yaziyordu, yani bir kez yazildiktan
+// sonra DEVICE_SERIAL_NUMBER makrosu degistirilip yeni firmware yuklense bile
+// cihaz eski seri numarayi kullanmaya devam ediyordu (degistirmek icin o
+// sektoru elle silmek gerekiyordu).
+//
+// Yeni durum: seri no artik SADECE DEVICE_SERIAL_NUMBER makrosundan geliyor,
+// flash'a hic dokunulmuyor - makro degisip firmware yuklendiginde cihazin
+// seri numarasi da degisiyor. "serial_num" partition'i partitions.csv'de
+// BILEREK duruyor (silinseydi arkasindaki butun partition'larin offset'leri
+// kayardi); artik okunmuyor da yazilmiyor da, bos duruyor.
 
 // This function appends the current date/time as a new "reset/boot" record
 // (12 kayitlik dongusel arsiv, dolunca basa saradan basliyor - dev'deki ile

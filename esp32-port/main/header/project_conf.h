@@ -23,7 +23,14 @@
 // NVS'e mi yazilacak? efuse mi kullanilacak?) henuz karara baglanmadi -
 // hocaya sorulmali. Simdilik dev'deki gibi ayni yontem (derleme zamani sabit)
 // korunuyor, PLACEHOLDER bir degerle.
-#define DEVICE_SERIAL_NUMBER "612400080"
+//
+// BURASI ARTIK TEK KAYNAK: seri no flash'a yazilmiyor, "serial_num"
+// partition'i hic okunmuyor. Yani bu satiri degistirip firmware yuklemek
+// cihazin seri numarasini degistirmeye yeter (eskiden o sektor bir kez
+// yazildiktan sonra makro degisikligi ise yaramiyordu, sektoru elle silmek
+// gerekiyordu). Uzunluk SERIAL_NUMBER_SIZE (9) olmali - defines.h'deki
+// _Static_assert bunu derleme zamaninda kontrol ediyor.
+#define DEVICE_SERIAL_NUMBER "612600001"
 
 // Device Password (will be written to flash)
 #define DEVICE_PASSWORD "12345678"
@@ -34,7 +41,7 @@
 // gecici olarak konmustu, dev ile hizalanirken kaldirildi.
 #define SOFTWARE_VERSION "V1.5.0"
 // production date of device (yy-mm-dd)
-#define PRODUCTION_DATE "26-06-12"
+#define PRODUCTION_DATE "26-08-17"
 // Debugs
 // ⚠️ Kullanicinin istegiyle 0 yapildi - monitorde PRINTF ciktisi istenmiyor.
 #define DEBUG 1

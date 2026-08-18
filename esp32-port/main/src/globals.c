@@ -30,7 +30,8 @@ float vrms_multiplication_value = VRMS_MULTIPLICATION_VALUE;
 bool password_correct_flag = false;
 
 // FLASH DEGISKENLERI
-uint8_t serial_number[SERIAL_NUMBER_SIZE + 1] = {0};
+// serial_number global'i KALDIRILDI - seri no artik flash'tan okunmuyor,
+// dogrudan DEVICE_SERIAL_NUMBER makrosundan geliyor (bkz. spiflash.c).
 uint16_t sector_data = 0;
 uint16_t th_sector_data = 0;
 struct FlashData flash_data[FLASH_SECTOR_SIZE / sizeof(struct FlashData)] = {0};

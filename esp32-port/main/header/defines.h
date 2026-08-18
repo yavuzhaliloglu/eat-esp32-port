@@ -34,7 +34,18 @@
 #define FLASH_AMPLITUDE_RECORDS_TOTAL_SECTOR 100
 #define SERIAL_NUMBER_SIZE 9
 #define SERIAL_NUMBER_FLAG_SIZE 3
+// Seri no karsilastirmasi (uart.c/control_serial_number) uzunlugu sabit
+// SERIAL_NUMBER_SIZE olarak aldigi icin, makronun bu uzunlukta olmasi
+// ZORUNLU. Farkli uzunlukta bir seri no yazilirsa protokolde sessizce yanlis
+// eslesme olmasin diye derleme zamaninda yakalaniyor.
+_Static_assert(sizeof(DEVICE_SERIAL_NUMBER) - 1 == SERIAL_NUMBER_SIZE,
+               "DEVICE_SERIAL_NUMBER tam olarak SERIAL_NUMBER_SIZE (9) karakter olmali!");
 
+// ⚠️ "serial_num" partition'i ARTIK KULLANILMIYOR: seri no flash'a yazilmiyor,
+// dogrudan DEVICE_SERIAL_NUMBER makrosundan geliyor. Partition tablodan
+// SILINMEDI - silinseydi arkasindaki butun partition'larin offset'leri
+// kayardi ve sahadaki kartlarin kayitlari okunamaz hale gelirdi. Bu etiket
+// sadece o alanin hangi partition oldugunu belgelemek icin duruyor.
 #define PARTITION_LABEL_SERIAL_NUM "serial_num"
 #define PARTITION_LABEL_LP_SECTOR "lp_sector"
 #define PARTITION_LABEL_LOAD_PROFILE "load_profile"

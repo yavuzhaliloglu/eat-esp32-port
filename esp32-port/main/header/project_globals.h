@@ -154,7 +154,8 @@ extern float vrms_multiplication_value;
 extern bool password_correct_flag;
 
 // FLASH (SPI) DEGISKENLERI
-extern uint8_t serial_number[SERIAL_NUMBER_SIZE + 1];
+// ⚠️ serial_number[] KALDIRILDI: seri no artik flash'tan okunan bir RAM
+// kopyasi degil, dogrudan DEVICE_SERIAL_NUMBER makrosu (project_conf.h).
 extern uint16_t sector_data;
 extern uint16_t th_sector_data;
 extern struct FlashData flash_data[FLASH_SECTOR_SIZE / sizeof(struct FlashData)];

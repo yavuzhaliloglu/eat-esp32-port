@@ -68,9 +68,9 @@ void updateThresholdSector(uint16_t sector_val);
 // adiminin ESP32 karsiligi, adc.c'den cagrilir.
 void writeThresholdRecordsSectorToFlash(uint16_t sector_val);
 
-// --- ASAMA 4: seri no / reset kaydi / ani degisim kaydi ---
-// This function adds serial number to flash area
-void addSerialNumber();
+// --- ASAMA 4: reset kaydi / ani degisim kaydi ---
+// ⚠️ addSerialNumber() KALDIRILDI - seri no artik flash'a yazilmiyor, dogrudan
+// DEVICE_SERIAL_NUMBER makrosundan geliyor (bkz. spiflash.c'deki ayrintili not).
 void setProgramStartDate(datetime_t *ct);
 void writeSuddenAmplitudeChangeRecordToFlash(struct AmplitudeChangeTimerCallbackParameters *ac_params);
 
