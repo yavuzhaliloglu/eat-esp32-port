@@ -91,7 +91,7 @@
 // pin (GPIO6) ayri, gercek bir donanim oldugu icin burada ACIK (1) - bkz.
 // CLAUDE.md "Kesinlesmis kararlar": Threshold pin + Status LED ikisi de
 // kullanilacak, ayri ayri.
-#define CONF_THRESHOLD_PIN_ENABLED 1
+#define CONF_THRESHOLD_PIN_ENABLED 0 
 #define CONF_SUDDEN_AMPLITUDE_CHANGE_ENABLED 0
 #define CONF_TIME_READ_ENABLED 1
 #define CONF_DATE_READ_ENABLED 1

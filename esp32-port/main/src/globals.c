@@ -64,29 +64,28 @@ SemaphoreHandle_t xVRMSLastValuesMutex;
 SemaphoreHandle_t xVRMSThresholdMutex;
 SemaphoreHandle_t xThresholdSetFlagMutex;
 
-// Bosta "cihaz calisiyor" gostergesi. Degerler MILISANIYE (StatusLedTask 10 ms
-// dongude oynatiyor), sirayla yanik/sonuk. dev'den gelen {100 x 10} deseni
-// 5 Hz'di ve gozu yoruyordu; 1 Hz hem rahat gorunuyor hem "canli" mesajini
-// ayni sekilde veriyor. Daha da yavas istersen tek satir: {1000, 1000} -> 0.5 Hz,
-// ya da belli belirsiz bir nabiz icin {100, 1900} -> 2 saniyede bir kisa flas.
+// Bosta "cihaz calisiyor" gostergesi: Pico'daki gibi 1 saniye yanik,
+// 1 saniye sonuk. Degerler milisaniye; tam cevrim 2 saniye (0.5 Hz).
 // ⚠️ Dizi uzunlugunu degistirirsen asagidaki patterns[] icindeki sayiyi da
 // guncelle.
-const uint16_t pattern_idle[] = {500, 500};
+const uint16_t pattern_idle[] = {1000, 1000};
 
-// Hata Desenleri (LED blink pattern'leri, ms cinsinden ac/kapa sureleri)
-const uint16_t led_pattern_uart_not_readable[] = {50, 950};                        // 1 Kisa
-const uint16_t led_pattern_message_timeout[] = {250, 750};                         // 1 Uzun
-const uint16_t led_pattern_invalid_request_mode[] = {50, 100, 50, 800};            // 2 Kisa
-const uint16_t led_pattern_invalid_serial_number[] = {250, 100, 250, 400};         // 2 Uzun
-const uint16_t led_pattern_flash_mutex_not_taken[] = {50, 100, 50, 100, 50, 650};  // 3 Kisa
-const uint16_t led_pattern_fifo_mutex_not_taken[] = {25, 50, 25, 900};             // Kalp atisi (2 hizli)
-const uint16_t led_pattern_vrms_values_mutex_not_taken[] = {50, 100, 250, 600};    // Kisa-Uzun
-const uint16_t led_pattern_vrms_threshold_mutex_not_taken[] = {250, 100, 50, 600}; // Uzun-Kisa
-const uint16_t led_pattern_threshold_set_mutex_not_taken[] = {25, 25, 25, 25, 25, 25, 25, 25, 25, 775}; // 5 hizli
-const uint16_t led_pattern_rx_buffer_overflow_isr[] = {50, 50, 50, 50, 50, 50, 250, 450};               // 3 hizli, 1 uzun
-const uint16_t led_pattern_stackoverflow[] = {500, 200, 100, 700};
-const uint16_t led_pattern_flash_metadata_corrupt[] = {250, 100, 250, 100, 50, 650}; // 2 Uzun, 1 Kisa
-const uint16_t led_pattern_rtc_stalled[] = {500, 100, 500, 100, 500, 300};           // 3 Uzun (saat durdu)
+// Hata desenleri: milisaniye cinsinden yanik/sonuk sureleri.
+// Pico sayaci 2 ms'de bir arttigi icin oradaki dizi degerleri burada
+// iki kat milisaniye olarak kullanilir; boylece tum desenlerin ritmi aynidir.
+const uint16_t led_pattern_uart_not_readable[] = {100, 1900};                        // 1 Kisa
+const uint16_t led_pattern_message_timeout[] = {500, 1500};                          // 1 Uzun
+const uint16_t led_pattern_invalid_request_mode[] = {100, 200, 100, 1600};           // 2 Kisa
+const uint16_t led_pattern_invalid_serial_number[] = {500, 200, 500, 800};           // 2 Uzun
+const uint16_t led_pattern_flash_mutex_not_taken[] = {100, 200, 100, 200, 100, 1300}; // 3 Kisa
+const uint16_t led_pattern_fifo_mutex_not_taken[] = {50, 100, 50, 1800};              // Kalp atisi (2 hizli)
+const uint16_t led_pattern_vrms_values_mutex_not_taken[] = {100, 200, 500, 1200};     // Kisa-Uzun
+const uint16_t led_pattern_vrms_threshold_mutex_not_taken[] = {500, 200, 100, 1200};  // Uzun-Kisa
+const uint16_t led_pattern_threshold_set_mutex_not_taken[] = {50, 50, 50, 50, 50, 50, 50, 50, 50, 1550}; // 5 hizli
+const uint16_t led_pattern_rx_buffer_overflow_isr[] = {100, 100, 100, 100, 100, 100, 500, 900};           // 3 hizli, 1 uzun
+const uint16_t led_pattern_stackoverflow[] = {1000, 400, 200, 1400};
+const uint16_t led_pattern_flash_metadata_corrupt[] = {500, 200, 500, 200, 100, 1300}; // 2 Uzun, 1 Kisa
+const uint16_t led_pattern_rtc_stalled[] = {1000, 200, 1000, 200, 1000, 600};           // 3 Uzun (saat durdu)
 
 const LedPattern patterns[] = {
     {pattern_idle, 2},
