@@ -28,7 +28,9 @@ esp32-meter-port/
 │       └── field_logger.py       Saha testi icin surekli RS485 okuma + Excel VE text dosyasina AYNI ANDA kayit script'i (port secimi, adaptor/cihaz kopmasi durumunda otomatik tekrar deneme, .venv icinde izole bagimliliklar)
 │
 └── web-ble/                    Telefon/tarayıcıdan BLE ile cihaza bağlanan Web Bluetooth sayfası
-    ├── index.html
+    ├── index.html              Ekranların HTML yapısı
+    ├── style.css               Görünüm ve stiller
+    ├── app.js                  Bluetooth bağlantısı ve arayüz davranışları
     ├── manifest.json / sw.js    PWA dosyaları
     └── icon.svg
 ```
@@ -64,7 +66,9 @@ Firmware:
 Web sayfası:
 - Sadece Android + Chrome açıyor (Web Bluetooth API) - iOS/Safari desteklemiyor
 - HTTPS üzerinden servis edilmesi lazım (Web Bluetooth localhost hariç HTTP'ye izin vermiyor) - biz Vercel'e deploy ettik, GitHub Pages ya da benzeri statik bir hosting de olur
-- `web-ble/index.html` tek başına çalışan bir dosya, build adımı yok
+- `web-ble/` statik dosyalardan oluşur; paket kurulumu veya build adımı yok
+- HTML `index.html`, stiller `style.css`, Bluetooth ve arayüz kodu `app.js` içinde
+- Yayınlarken altı dosyayı (`index.html`, `style.css`, `app.js`, `sw.js`, `manifest.json`, `icon.svg`) birlikte alan adının köküne yükle; yeni CSS/JS dosyaları da çevrimdışı önbelleğe dahildir
 
 Saha testi script'i (`field_logger.py`):
 - `.venv/` bilerek repoya eklenmedi (kişiye/makineye özel), her klonda bir kere kurulması lazım. Önce klasöre gir: `cd rp2040-original/testfiles`, sonra işletim sistemine göre:
