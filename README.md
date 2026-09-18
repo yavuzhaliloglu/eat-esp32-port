@@ -70,6 +70,29 @@ Web sayfası:
 - HTML `index.html`, stiller `style.css`, Bluetooth ve arayüz kodu `app.js` içinde
 - Yayınlarken altı dosyayı (`index.html`, `style.css`, `app.js`, `sw.js`, `manifest.json`, `icon.svg`) birlikte alan adının köküne yükle; yeni CSS/JS dosyaları da çevrimdışı önbelleğe dahildir
 
+Her cihazın Bluetooth adı `esp32-port/main/header/project_conf.h` içindeki
+`DEVICE_BLE_NAME` ile belirlenir:
+
+```c
+#define DEVICE_SERIAL_NUMBER "612600005"
+#define DEVICE_BLE_NAME "METER-" DEVICE_SERIAL_NUMBER
+```
+
+Bu ayarla cihaz `METER-612600005` olarak görünür; seri numarası değişince
+Bluetooth adı da değişir. Bağımsız bir ad için `DEVICE_BLE_NAME` değerini
+örneğin `"METER-PANO-1"` yapabilirsin. Web arayüzünde `app.js` içindeki
+`METER_NAME_PREFIX = "METER-"` hem cihaz seçimindeki `namePrefix` filtresinde
+hem de daha önce izin verilen cihazlara otomatik yeniden bağlanmada kullanılır.
+Bu nedenle `METER-` önekini koru. Eski `METER-TEST` adı da her iki akışta
+kabul edilir; eski cihazları listede görmek için firmware güncellemesi gerekmez.
+Mevcut reklam paketinde ad için en fazla 16 bayt yer var; boş veya fazla uzun
+ad derleme sırasında reddedilir.
+Değişikliği uygulamak için firmware'i yeniden derleyip cihaza yükle.
+Eski web sürümü yalnızca `METER-TEST` adını aradığından, yeni adlarla bağlantı
+kurmak için güncel `web-ble/` klasöründeki altı dosyayı birlikte web sunucuna
+(Vercel veya kendi sunucun) yükle. `sw.js` önbellek sürümü de yeni web kodunu
+çevrimdışı kullanım için yenileyecek şekilde güncellenmiştir.
+
 Saha testi script'i (`field_logger.py`):
 - `.venv/` bilerek repoya eklenmedi (kişiye/makineye özel), her klonda bir kere kurulması lazım. Önce klasöre gir: `cd rp2040-original/testfiles`, sonra işletim sistemine göre:
 
@@ -175,7 +198,9 @@ Threshold, kalibrasyon sabiti, load profile periyodu ve RTC saati gerçekten `AD
 
 ## BLE / Web arayüzü
 
-Cihaz "METER-TEST" adıyla yayın yapıyor, beş GATT servisi var:
+Cihaz varsayılan olarak `METER-<seri numarası>` adıyla yayın yapıyor;
+eski firmware'lerin `METER-TEST` adı da web arayüzünde destekleniyor.
+Beş GATT servisi var:
 
 | Servis | İçerik |
 |---|---|
@@ -189,7 +214,7 @@ Cihaz "METER-TEST" adıyla yayın yapıyor, beş GATT servisi var:
 
 Web sayfası ekran/menü tabanlı: Kısa Okuma, Uzun Okuma, Kart Durumu. Uzun Okuma ekranında ayrıca bir takvim var - flash'ta gerçekten veri olan günler aktif/tıklanabilir görünüyor, olmayanlar soluk kalıyor, bir gün (veya aralık) seçince RS485'teki gerçek `P.01(start;end)` sorgusunun BLE karşılığı çalışıp o aralığın verilerini gösteriyor.
 
-BLE'den gelen hiçbir veri `innerHTML` ile sayfaya eklenmiyor (hep `textContent`/DOM node) - eşleştirme olmadığı için "METER-TEST" adını taklit eden sahte bir cihaz kötü niyetli HTML/script gönderebilir, bunu kapatmak için. Sayfa PWA - bir kere internetle açılınca sonraki yenilemeler internet olmadan da çalışıyor.
+BLE'den gelen hiçbir veri `innerHTML` ile sayfaya eklenmiyor (hep `textContent`/DOM node) - eşleştirme olmadığı için sayacın adını taklit eden sahte bir cihaz kötü niyetli HTML/script gönderebilir, bunu kapatmak için. Sayfa PWA - bir kere internetle açılınca sonraki yenilemeler internet olmadan da çalışıyor.
 
 ## Firmware güncelleme (OTA)
 

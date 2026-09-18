@@ -8,6 +8,16 @@
 #include "common.h"
 #include "gatt_svc.h"
 #include "header/ota.h"
+#include "header/project_conf.h"
+
+// Legacy reklam paketi 31 bayt: flags (3), tx power (3), appearance (4),
+// LE role (3) ve ad basligi (2) sonrasinda ad icin 16 bayt kaliyor.
+_Static_assert(sizeof(DEVICE_BLE_NAME) > 1,
+               "DEVICE_BLE_NAME bos olamaz!");
+_Static_assert(sizeof(DEVICE_BLE_NAME) - 1 <= 16,
+               "DEVICE_BLE_NAME reklam paketine sigmasi icin en fazla 16 bayt olmali!");
+_Static_assert(sizeof(DEVICE_BLE_NAME) - 1 <= CONFIG_BT_NIMBLE_GAP_DEVICE_NAME_MAX_LEN,
+               "DEVICE_BLE_NAME NimBLE cihaz adi sinirini asiyor!");
 
 /* Private function declarations */
 inline static void format_addr(char *addr_str, uint8_t addr[]);
@@ -305,10 +315,10 @@ int gap_init(void) {
     ble_svc_gap_init();
 
     /* Set GAP device name */
-    rc = ble_svc_gap_device_name_set(DEVICE_NAME);
+    rc = ble_svc_gap_device_name_set(DEVICE_BLE_NAME);
     if (rc != 0) {
         ESP_LOGE(TAG, "failed to set device name to %s, error code: %d",
-                 DEVICE_NAME, rc);
+                 DEVICE_BLE_NAME, rc);
         return rc;
     }
     return rc;

@@ -9,6 +9,7 @@
 #include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
+#include "header/project_conf.h"
 #include "header/project_globals.h"
 #include "header/mutex.h"
 #include "header/fifo.h"
@@ -1000,7 +1001,7 @@ static void init_ble(void)
         return;
     }
 
-    ESP_LOGI(TAG, "BLE baslatildi (cihaz adi: METER-TEST).");
+    ESP_LOGI(TAG, "BLE baslatildi (cihaz adi: %s).", DEVICE_BLE_NAME);
 }
 
 // ---------------------------------------------------------------------------

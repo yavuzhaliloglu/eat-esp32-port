@@ -8,6 +8,10 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// project_conf.h'deki DEVICE_BLE_NAME ile uyumlu: METER-<seri numarasi>.
+// Eski firmware'lerin METER-TEST adi da ayni onekle bulunur.
+const METER_NAME_PREFIX = "METER-";
+
 const METER_INFO_SVC = "00000010-5453-4554-2d45-4c422d52544d";
 const METER_LIVE_SVC = "00000020-5453-4554-2d45-4c422d52544d";
 const METER_CONTROL_SVC = "00000030-5453-4554-2d45-4c422d52544d";
@@ -858,7 +862,7 @@ async function pickAndConnect() {
 
   try {
     bleDevice = await navigator.bluetooth.requestDevice({
-      filters: [{ name: "METER-TEST" }],
+      filters: [{ namePrefix: METER_NAME_PREFIX }],
       optionalServices: [METER_INFO_SVC, METER_LIVE_SVC, METER_CONTROL_SVC, METER_STATUS_SVC, METER_OTA_SVC],
     });
 
@@ -929,7 +933,7 @@ async function tryAutoReconnect() {
   if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return;
   try {
     const devices = await navigator.bluetooth.getDevices();
-    const known = devices.find((d) => d.name === "METER-TEST");
+    const known = devices.find((d) => d.name?.startsWith(METER_NAME_PREFIX));
     if (!known) return;
 
     bleDevice = known;

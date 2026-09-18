@@ -32,6 +32,13 @@
 // _Static_assert bunu derleme zamaninda kontrol ediyor.
 #define DEVICE_SERIAL_NUMBER "612600005"
 
+// Bluetooth adi: "METER-" oneki ve cihazin seri numarasindan uretilir.
+// Web arayuzu "METER-" ile baslayan adlari filtreler. Bagimsiz bir ad
+// yazarsan da bu oneki koru (ornegin "METER-PANO-1"). Mevcut reklam paketiyle
+// toplam uzunluk en fazla 16 bayt olabilir (ASCII kullanirsan 16 karakter).
+// Degisiklik firmware yeniden derlenip cihaza yuklendiginde uygulanir.
+#define DEVICE_BLE_NAME "METER-" DEVICE_SERIAL_NUMBER
+
 // Device Password (will be written to flash)
 #define DEVICE_PASSWORD "12345678"
 // Device software version number

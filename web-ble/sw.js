@@ -7,7 +7,7 @@
  * basarisiz olursa (gercekten offline) onbellege dus. Boylece gelistirme
  * sirasinda internet varken hep en son deploy edilen surum gorunur.
  */
-const CACHE_NAME = "mavi-alp-ble-v3";
+const CACHE_NAME = "mavi-alp-ble-v4";
 const ASSETS = ["/", "/index.html", "/style.css", "/app.js", "/manifest.json", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

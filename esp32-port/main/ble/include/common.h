@@ -32,6 +32,5 @@
 
 /* Defines */
 #define TAG "ble_meter_test"
-#define DEVICE_NAME "METER-TEST"
 
 #endif // COMMON_H
