@@ -401,8 +401,8 @@ uint8_t exract_baud_rate_and_mode_from_message(uint8_t *msg_buf, size_t msg_len,
 // Uzun okuma icin ek kayitlar (esik asim + reset kayitlari)
 // ---------------------------------------------------------------------------
 
-// Esik asim kayitlari: halkadaki SON 10 kayit, eskiden yeniye dogru
-// (*1 = en eski, *10 = en yeni) gonderilir - reset kayitlari (0.1.2*N,
+// Esik asim kayitlari: halkadaki SON 10 kayit, yeniden eskiye dogru
+// (*1 = en yeni, *10 = en eski) gonderilir - reset kayitlari (0.1.2*N,
 // send_reset_dates) ile AYNI kural.
 //
 // Kayit alani bir HALKA tampon oldugu icin artik tek bir sektorun icinde
@@ -451,12 +451,10 @@ void send_threshold_records(uint8_t *xor_result)
         // tutuyoruz (rekursif olmayan mutex'te ikinci alma kilitlenirdi).
         uint16_t write_index = getThresholdWriteIndex();
 
-        // Halkada geriye dogru: back = THRESHOLD_RECORD_OBIS_COUNT en eski,
-        // back = 1 en yeni. i = 0 -> en eski olacak sekilde dolduruyoruz ki
-        // asagidaki artan indeks (*1..*10) kronolojik sirayla gitsin.
+        // Ilk indeks son yazilan kayittir; her adimda bir kayit daha geriye git.
         for (size_t i = 0; i < THRESHOLD_RECORD_OBIS_COUNT; i++)
         {
-            uint16_t back = (uint16_t)(THRESHOLD_RECORD_OBIS_COUNT - i);
+            uint16_t back = (uint16_t)(i + 1u);
             uint16_t slot = thSlotBack(write_index, back, TH_RECORD_SLOT_COUNT);
 
             esp_partition_read(threshold_rec_part, (size_t)slot * FLASH_RECORD_SIZE,
@@ -473,8 +471,7 @@ void send_threshold_records(uint8_t *xor_result)
         return;
     }
 
-    // Indeks 1'den THRESHOLD_RECORD_OBIS_COUNT'a ARTARAK ilerler ve bellekteki
-    // sira zaten kronolojik oldugu icin *1 en eski, *10 en yeni kayittir.
+    // *1 en yeni kayit; indeks arttikca daha eski kayitlar gonderilir.
     for (size_t i = 0, idx = 1; i < THRESHOLD_RECORD_OBIS_COUNT; i++, idx++)
     {
         size_t offset = i * FLASH_RECORD_SIZE;
@@ -553,7 +550,6 @@ void send_reset_dates(uint8_t *xor_result)
     // duzeltildi: okumanin tamami (tarama + kopyalama) tek bir mutex
     // blogu icinde yapiliyor.
     uint16_t idx = 0;
-    uint16_t obis_idx = 0;
     if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) == pdTRUE)
     {
         esp_partition_read(reset_dates_part, 0, reset_dates_flash, FLASH_SECTOR_SIZE);
@@ -565,22 +561,23 @@ void send_reset_dates(uint8_t *xor_result)
                 break;
             }
             idx += FLASH_RECORD_SIZE;
-            obis_idx++;
         }
 
-        uint32_t start_offset;
         uint32_t end_offset = idx;
-
-        if (end_offset > FLASH_RECORD_SIZE * RESET_DATES_OBIS_COUNT)
+        uint16_t record_count = end_offset / FLASH_RECORD_SIZE;
+        if (record_count > RESET_DATES_OBIS_COUNT)
         {
-            start_offset = end_offset - (FLASH_RECORD_SIZE * RESET_DATES_OBIS_COUNT);
-        }
-        else
-        {
-            start_offset = 0;
+            record_count = RESET_DATES_OBIS_COUNT;
         }
 
-        memcpy(reset_dates_raw, reset_dates_flash + start_offset, end_offset - start_offset);
+        // Flash sirasi degismez. Son kaydi RAM'de *1'e, oncekini *2'ye koy.
+        // Az kayit varsa kalan indeksler sifirlanmis (bos) kalir.
+        for (uint16_t record = 0; record < record_count; record++)
+        {
+            size_t source_offset = end_offset - (record + 1u) * FLASH_RECORD_SIZE;
+            memcpy(reset_dates_raw + record * FLASH_RECORD_SIZE,
+                   reset_dates_flash + source_offset, FLASH_RECORD_SIZE);
+        }
 
         xSemaphoreGive(xFlashMutex);
     }

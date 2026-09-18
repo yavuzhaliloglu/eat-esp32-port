@@ -30,7 +30,7 @@
 // yazildiktan sonra makro degisikligi ise yaramiyordu, sektoru elle silmek
 // gerekiyordu). Uzunluk SERIAL_NUMBER_SIZE (9) olmali - defines.h'deki
 // _Static_assert bunu derleme zamaninda kontrol ediyor.
-#define DEVICE_SERIAL_NUMBER "612600001"
+#define DEVICE_SERIAL_NUMBER "612600005"
 
 // Device Password (will be written to flash)
 #define DEVICE_PASSWORD "12345678"
@@ -44,7 +44,7 @@
 #define PRODUCTION_DATE "26-08-17"
 // Debugs
 // ⚠️ Kullanicinin istegiyle 0 yapildi - monitorde PRINTF ciktisi istenmiyor.
-#define DEBUG 1
+#define DEBUG 0
 
 // vrms multiplier value
 // KARAR: 150 -> 148.8 olarak guncellendi. Eski deger hocanin "ayni kalsin,

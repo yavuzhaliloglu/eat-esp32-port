@@ -387,14 +387,13 @@ static void append_threshold_history(char *out, size_t out_size, size_t *pos)
     }
 
     // Kayit alani bir HALKA tampon: alanin basindan degil, YAZMA KONUMUNDAN
-    // geriye dogru yurunur. i = 0 en eski olacak sekilde dolduruyoruz ki
-    // asagidaki artan slot numarasi kronolojik sirayla gitsin (RS485'teki
-    // 96.77.4*N ile ayni kural: 1 = en eski, 10 = en yeni).
+    // geriye dogru yurunur. RS485 ile ayni indeksleme: 1 = en yeni,
+    // indeks arttikca daha eski kayit. Flash'taki yazma sirasi degismez.
     uint16_t write_index = getThresholdWriteIndex();
 
     for (size_t i = 0; i < THRESHOLD_RECORD_OBIS_COUNT; i++)
     {
-        uint16_t back = (uint16_t)(THRESHOLD_RECORD_OBIS_COUNT - i);
+        uint16_t back = (uint16_t)(i + 1u);
         uint16_t slot = thSlotBack(write_index, back, TH_RECORD_SLOT_COUNT);
 
         esp_partition_read(part, (size_t)slot * FLASH_RECORD_SIZE,
@@ -469,42 +468,48 @@ static void append_reset_history(char *out, size_t out_size, size_t *pos)
     }
 
     uint32_t end_offset = idx;
-    uint32_t start_offset = (end_offset > FLASH_RECORD_SIZE * RESET_DATES_OBIS_COUNT)
-                                 ? (end_offset - (FLASH_RECORD_SIZE * RESET_DATES_OBIS_COUNT))
-                                 : 0;
-    memcpy(reset_dates_raw, reset_dates_flash + start_offset, end_offset - start_offset);
+    uint16_t record_count = end_offset / FLASH_RECORD_SIZE;
+    if (record_count > RESET_DATES_OBIS_COUNT)
+    {
+        record_count = RESET_DATES_OBIS_COUNT;
+    }
+    // RS485 ile ayni RAM yerlesimi: en yeni *1'de, bos indeksler sonda.
+    for (uint16_t record = 0; record < record_count; record++)
+    {
+        size_t source_offset = end_offset - (record + 1u) * FLASH_RECORD_SIZE;
+        memcpy(reset_dates_raw + record * FLASH_RECORD_SIZE,
+               reset_dates_flash + source_offset, FLASH_RECORD_SIZE);
+    }
 
     xSemaphoreGive(xFlashMutex);
 
     // Kalan bayt butcesine TAM sigan kayit sayisi. Sigmayanlar hic yazilmaz;
     // eskiden butce bitince son kayit ortadan kesiliyordu.
     //
-    // ⚠️ Atlananlar BASTAKILER, yani EN ESKI kayitlar. Reset kayitlari
-    // kronolojik siralidir (obis 1 = en eski, 12 = en yeni) ve pratikte
-    // ilgilenilen sey son acilislardir - o yuzden yeniler korunup eskiler
-    // dusuruluyor. Tersini istersen bu blogu silmen yeterli: o zaman
-    // 1..7 (en eskiler) gonderilir.
-    size_t budget = (BLE_HISTORY_MAX_BYTES > *pos) ? (BLE_HISTORY_MAX_BYTES - *pos) : 0;
-    uint16_t fits = (uint16_t)(budget / RS_HISTORY_ENTRY_MAX);
-    uint16_t skip = (fits < RESET_DATES_OBIS_COUNT) ? (uint16_t)(RESET_DATES_OBIS_COUNT - fits) : 0;
-
-    if (skip > 0)
+    // En yeni kayitlar bastadir (*1, *2, ...). Butce yetmezse sondaki
+    // eski indeksler atlanir; az sayidaki gercek kayitlar da korunur.
+    size_t capacity = (out_size > 0) ? out_size - 1u : 0;
+    if (capacity > BLE_HISTORY_MAX_BYTES)
     {
-        ESP_LOGW(TAG, "BLE 512 bayt siniri: en eski %u reset kaydi atlandi, %u kayit gonderiliyor "
-                      "(RS485'te 12'sinin tamami gelmeye devam ediyor)",
-                 (unsigned)skip, (unsigned)(RESET_DATES_OBIS_COUNT - skip));
+        capacity = BLE_HISTORY_MAX_BYTES;
+    }
+    size_t budget = (capacity > *pos) ? (capacity - *pos) : 0;
+    uint16_t fits = (uint16_t)(budget / RS_HISTORY_ENTRY_MAX);
+    if (fits > RESET_DATES_OBIS_COUNT)
+    {
+        fits = RESET_DATES_OBIS_COUNT;
     }
 
-    for (uint16_t i = 0, obis = 1; i < sizeof(reset_dates_raw); i += FLASH_RECORD_SIZE, obis++)
+    if (fits < RESET_DATES_OBIS_COUNT)
+    {
+        ESP_LOGW(TAG, "BLE yanit siniri: sondaki %u reset yeri atlandi, ilk %u yer gonderiliyor "
+                      "(RS485'te 12'sinin tamami gelmeye devam ediyor)",
+                 (unsigned)(RESET_DATES_OBIS_COUNT - fits), (unsigned)fits);
+    }
+
+    for (uint16_t i = 0, obis = 1; obis <= fits; i += FLASH_RECORD_SIZE, obis++)
     {
         int n;
-
-        // Slot numarasi RS485'teki 0.1.2*N ile ayni kalsin diye obis yine de
-        // ilerliyor; sadece yazma atlaniyor.
-        if (obis <= skip)
-        {
-            continue;
-        }
 
         if (reset_dates_raw[i] == 0xFF || reset_dates_raw[i] == 0x00)
         {
