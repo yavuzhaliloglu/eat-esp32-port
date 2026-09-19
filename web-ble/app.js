@@ -1,8 +1,11 @@
+const WEB_APP_VERSION = "8";
+document.getElementById("appVersion").textContent = "Web v" + WEB_APP_VERSION;
+
 // Sayfa/varliklarini onbellege alir ki internet olmadan yenilenince de
 // gercek sayfa (ve calisan butonlar) acilsin.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((err) => {
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((err) => {
       console.warn("Service worker kaydi basarisiz:", err);
     });
   });
@@ -35,6 +38,8 @@ const CHR = {
   history:      "00000230-5453-4554-2d45-4c422d52544d",
   lpDates:      "00000330-5453-4554-2d45-4c422d52544d",
   lpData:       "00000430-5453-4554-2d45-4c422d52544d",
+  recordPage:   "00000530-5453-4554-2d45-4c422d52544d",
+  parameterWrite: "00000630-5453-4554-2d45-4c422d52544d",
   uptime:       "00000140-5453-4554-2d45-4c422d52544d",
   freeHeap:     "00000240-5453-4554-2d45-4c422d52544d",
   adcRate:      "00000340-5453-4554-2d45-4c422d52544d",
@@ -79,9 +84,15 @@ let controlService = null;
 let statusService = null;
 let otaService = null;
 let commandChr = null;
-let writableChrCache = {};
+let recordPageChr = null;
+let parameterWriteChr = null;
+let parameterWritePending = false;
+let recordReadQueue = Promise.resolve();
 let otaSelectedFile = null;
 let otaInProgress = false;
+let otaSucceeded = false;
+let otaAwaitingFinish = false;
+let otaTransferError = "";
 
 /* --- Ekran (view) gecisleri --- */
 function showView(id) {
@@ -96,6 +107,113 @@ function showError(msg) {
 
 function clearError() {
   errorBox.style.display = "none";
+}
+
+const toast = document.getElementById("toast");
+let toastTimer;
+function showToast(message, success = false) {
+  clearTimeout(toastTimer);
+  toast.className = "toast " + (success ? "success" : "error");
+  toast.setAttribute("role", success ? "status" : "alert");
+  toast.setAttribute("aria-live", success ? "polite" : "assertive");
+  document.getElementById("toastText").textContent = message;
+  toast.hidden = false;
+  toastTimer = setTimeout(() => { toast.hidden = true; }, success ? 6000 : 10000);
+}
+document.getElementById("toastClose").addEventListener("click", () => {
+  clearTimeout(toastTimer);
+  toast.hidden = true;
+});
+
+const passwordDialog = document.getElementById("passwordDialog");
+const passwordForm = document.getElementById("passwordForm");
+const devicePassword = document.getElementById("devicePassword");
+const passwordCancel = document.getElementById("passwordCancel");
+let cancelPasswordPrompt = null;
+
+function askDevicePassword(message, action = "Onayla ve Kaydet") {
+  return new Promise((resolve) => {
+    document.getElementById("passwordMessage").textContent = message;
+    document.getElementById("passwordSubmit").textContent = action;
+    devicePassword.value = "";
+    let finished = false;
+    function finish(value) {
+      if (finished) return;
+      finished = true;
+      passwordForm.removeEventListener("submit", submit);
+      passwordDialog.removeEventListener("cancel", cancel);
+      passwordCancel.removeEventListener("click", cancel);
+      devicePassword.value = "";
+      passwordDialog.close();
+      cancelPasswordPrompt = null;
+      resolve(value);
+    }
+    function submit(event) {
+      event.preventDefault();
+      if (devicePassword.value) finish(devicePassword.value);
+    }
+    function cancel(event) { event?.preventDefault(); finish(null); }
+    cancelPasswordPrompt = () => finish(null);
+    passwordForm.addEventListener("submit", submit);
+    passwordDialog.addEventListener("cancel", cancel);
+    passwordCancel.addEventListener("click", cancel);
+    passwordDialog.showModal();
+    devicePassword.focus();
+  });
+}
+
+const PARAMETER_LABELS = {
+  threshold: "VRMS eşik değeri", calibration: "Kalibrasyon sabiti",
+  loadprofile: "Yük profili periyodu", rtc: "Tarih / saat", defaults: "Varsayılan ayarlar",
+  ota: "Firmware güncellemesi",
+};
+const PARAMETER_ERRORS = {
+  PASSWORD: "Şifre yanlış. İşlem yapılmadı.",
+  VALUE: "Girilen değer geçersiz. Değeri ve biçimini kontrol edin.",
+  STORAGE: "Cihazın kalıcı belleğine kaydedilemedi. Tekrar deneyin.",
+  RTC: "Tarih / saat RTC'ye yazılamadı veya doğrulanamadı.",
+  BUSY: "Cihaz meşgul. Lütfen tekrar deneyin.",
+  PARTIAL: "Sıfırlama tamamlanamadı; bazı ayarlar değişmiş olabilir. Güncel değerleri yeniden okuyun.",
+  FIELD: "Cihaz bu parametrenin değiştirilmesini desteklemiyor.",
+  FORMAT: "Cihaz değişiklik isteğini okuyamadı. Sayfayı yenileyip tekrar deneyin.",
+};
+
+async function writeParameterWithPassword(field, value, message) {
+  if (parameterWritePending) return null;
+  if (!bleDevice?.gatt?.connected) throw new Error("Cihaz bağlantısı yok. Önce cihaza bağlanın.");
+  if (!parameterWriteChr) throw new Error("Şifreli işlem için cihaz yazılımını güncelleyin, ardından yeniden bağlanın.");
+  parameterWritePending = true;
+  const chr = parameterWriteChr;
+  let password = "", request;
+  try {
+    password = await askDevicePassword(message || (PARAMETER_LABELS[field] +
+      (field === "defaults" ? " geri yüklenecek." : " → " + value)),
+      field === "ota" ? "Onayla ve Yükle" : "Onayla ve Kaydet");
+    if (password === null) return null;
+    if (!bleDevice?.gatt?.connected || chr !== parameterWriteChr) throw new Error("Cihaz bağlantısı kesildi.");
+    request = encoder.encode(field + "\n" + password + "\n" + value);
+    password = "";
+    if (request.length >= 128) throw new Error("Şifre veya parametre değeri çok uzun.");
+    await chr.writeValueWithResponse(request);
+    request.fill(0);
+    const result = decoder.decode(await chr.readValue());
+    if (result.startsWith("ERR:")) {
+      let message = PARAMETER_ERRORS[result.substring(4)] || "Cihaz işlemi tamamlayamadı.";
+      if (field === "ota" && result === "ERR:FIELD")
+        message = "Bu firmware şifreli OTA desteklemiyor. Önce cihaz yazılımını USB üzerinden güncelleyin.";
+      if (result.startsWith("ERR:OTA:")) message = "OTA başlatılamadı: " + result.slice(8).replace(/^ERROR:/, "");
+      const error = new Error(message);
+      error.deviceRejected = true;
+      throw error;
+    }
+    const prefix = "OK:" + field + "\n";
+    if (!result.startsWith(prefix)) throw new Error("İşlem sonucu doğrulanamadı. Güncel değeri yeniden okuyun.");
+    return { value: result.substring(prefix.length) };
+  } finally {
+    password = "";
+    request?.fill(0);
+    parameterWritePending = false;
+  }
 }
 
 function setStatus(connected, text) {
@@ -289,9 +407,52 @@ function renderHistoryFull(text) {
 }
 
 async function readHistoryFull() {
-  const chr = await controlService.getCharacteristic(CHR.history);
-  const value = await chr.readValue();
-  renderHistoryFull(decodeValue(value));
+  return queueRecordRead(async () => {
+    await sendCommand("LONG");
+    const text = await readRecordPages("H", CHR.history);
+    renderHistoryFull(text);
+    const count = document.getElementById("reset-log").children.length;
+    document.getElementById("resetHistorySummary").textContent =
+      count + " / 12 kayıt yeri okundu." +
+      (count < 12 ? (recordPageChr ? " Okuma eksik kaldı; tekrar deneyin." :
+        " Tüm kayıtlar için güncel cihaz yazılımı gerekir. Zaten güncelledinizse tabletin Bluetooth'unu kapatıp açarak yeniden bağlanın.") : "");
+  });
+}
+
+// Tek sayfa readValue sinirini asan kayitlar uygulama seviyesinde okunur.
+// Eski cihazlarda yeni characteristic yoktur; mevcut okuma yolu korunur.
+function queueRecordRead(task) {
+  const result = recordReadQueue.then(task);
+  recordReadQueue = result.catch(() => {});
+  return result;
+}
+
+async function readRecordPages(kind, legacyUuid) {
+  const pageChr = recordPageChr;
+  if (!pageChr) {
+    const chr = await controlService.getCharacteristic(legacyUuid);
+    return decodeValue(await chr.readValue());
+  }
+  const chunks = [];
+  let cursor = 0;
+  // Flash'ta en fazla 3072 slot var; bozuk cevap sonsuz dongu olusturmasin.
+  for (let page = 0; page <= 3072; page++) {
+    if (pageChr !== recordPageChr) throw new Error("Kayıt okunurken bağlantı kesildi.");
+    await pageChr.writeValueWithResponse(encoder.encode(kind + ":" + cursor));
+    const value = await pageChr.readValue();
+    const text = decoder.decode(value);
+    const match = /^P1:(-1|\d+)\n/.exec(text);
+    if (!match) throw new Error("Cihazdan geçersiz kayıt yanıtı geldi.");
+    const payload = text.substring(match[0].length);
+    chunks.push(payload);
+    const next = Number(match[1]);
+    if (next === -1) return chunks.join("");
+    if (!Number.isSafeInteger(next) || next <= cursor || next > 3072 || !payload) {
+      throw new Error("Kayıt aktarımı ilerlemiyor; tekrar deneyin.");
+    }
+    cursor = next;
+  }
+  throw new Error("Kayıt aktarımı tamamlanamadı.");
 }
 
 /* --- Load profile tarih-araligi sorgusu: gercek RS485 "P.01(start;end)"
@@ -304,12 +465,14 @@ let lpCalYear = null;
 let lpCalMonth = null; // 0-indexli
 let lpSelStart = null; // {y, m, d}
 let lpSelEnd = null;
+let lpQueryInProgress = false;
 
 const lpCalLabel = document.getElementById("lpCalLabel");
 const lpCalGrid = document.getElementById("lpCalGrid");
 const lpSelectionText = document.getElementById("lpSelectionText");
 const lpClearSelectionBtn = document.getElementById("lpClearSelection");
 const lpQueryResult = document.getElementById("lpQueryResult");
+const lpResultSummary = document.getElementById("lpResultSummary");
 
 function lpParseAvailableDates(text) {
   lpAvailableDates = new Set();
@@ -335,6 +498,7 @@ function lpResetSelection(clearResult) {
   lpSelectionText.textContent = "Bir gün seç (aralık için ikinci güne de dokun)";
   if (clearResult) {
     lpQueryResult.textContent = "Henüz sorgulanmadı";
+    lpResultSummary.textContent = "";
   }
 }
 
@@ -380,6 +544,7 @@ function renderLpCalendar() {
 }
 
 async function onLpDayClick(y, m, d) {
+  if (lpQueryInProgress) return;
   if (!lpSelStart || lpSelEnd) {
     lpSelStart = { y, m, d };
     lpSelEnd = null;
@@ -402,6 +567,7 @@ async function onLpDayClick(y, m, d) {
 }
 
 lpClearSelectionBtn.addEventListener("click", () => {
+  if (lpQueryInProgress) return;
   lpResetSelection(true);
   renderLpCalendar();
 });
@@ -426,9 +592,15 @@ function lpFmtCmdDate(y, m, d) {
    ile eklenmiyor - textContent/DOM node ile, XSS'e kapali. */
 function renderLpResult(text) {
   lpQueryResult.textContent = "";
+  lpQueryResult.scrollTop = 0;
+  lpResultSummary.textContent = "";
   const trimmed = text.trim();
-  if (!trimmed || trimmed === "gecersiz tarih formati") {
-    lpQueryResult.textContent = trimmed ? "Sorgu hatası: " + trimmed : "Bu aralıkta kayıt yok.";
+  if (!trimmed || trimmed === "veri bulunamadi") {
+    lpQueryResult.textContent = "Bu aralıkta kayıt yok.";
+    return;
+  }
+  if (["gecersiz tarih formati", "tarih formati gecersiz", "partition bulunamadi", "okuma hatasi"].includes(trimmed)) {
+    lpQueryResult.textContent = "Sorgu hatası: " + trimmed;
     return;
   }
   const entries = trimmed.split(";").map((s) => s.trim()).filter(Boolean);
@@ -451,21 +623,32 @@ function renderLpResult(text) {
     row.append(label, value);
     lpQueryResult.append(row);
   });
+  lpResultSummary.textContent = lpQueryResult.children.length + " kayıt gösteriliyor." +
+    (!recordPageChr ? " Kayıtlar eksik olabilir; tümü için cihaz yazılımını güncelleyin." : "");
 }
 
 async function runLpQuery() {
-  if (!lpSelStart) return;
+  if (!lpSelStart || lpQueryInProgress) return;
+  lpQueryInProgress = true;
   const end = lpSelEnd || lpSelStart;
   const cmd = "LP:" + lpFmtCmdDate(lpSelStart.y, lpSelStart.m, lpSelStart.d) + ";" +
               lpFmtCmdDate(end.y, end.m, end.d);
   lpQueryResult.textContent = "Sorgulanıyor...";
+  lpResultSummary.textContent = "";
+  lpQueryResult.setAttribute("aria-busy", "true");
+  lpClearSelectionBtn.disabled = true;
   try {
-    await sendCommand(cmd);
-    const chr = await controlService.getCharacteristic(CHR.lpData);
-    const value = await chr.readValue();
-    renderLpResult(decodeValue(value));
+    await queueRecordRead(async () => {
+      await sendCommand(cmd);
+      renderLpResult(await readRecordPages("L", CHR.lpData));
+    });
   } catch (err) {
+    lpQueryResult.textContent = "Kayıtlar okunamadı. Tekrar deneyin.";
     showError("Load profile sorgu hatası: " + err.message);
+  } finally {
+    lpQueryInProgress = false;
+    lpQueryResult.setAttribute("aria-busy", "false");
+    lpClearSelectionBtn.disabled = false;
   }
 }
 
@@ -492,13 +675,6 @@ async function loadLpAvailableDates() {
   renderLpCalendar();
 }
 
-async function getWritableChr(field) {
-  if (!writableChrCache[field]) {
-    writableChrCache[field] = await infoService.getCharacteristic(CHR[field]);
-  }
-  return writableChrCache[field];
-}
-
 /* --- Satır içi düzenleme: hem Kısa hem Uzun okuma ekranında ("s-"/"l-"
    önekleriyle) çalışır - kalem -> input + tik, tike basınca kaydet, başka
    yere basınca (blur) değişiklik yapmadan çık. Bir taraftan kaydedilen
@@ -506,6 +682,7 @@ async function getWritableChr(field) {
 const PREFIXES = ["s-", "l-"];
 
 function startEdit(prefix, field) {
+  if (parameterWritePending) return;
   const display = document.getElementById(prefix + field);
   const input = document.getElementById("input-" + prefix + field);
   const editIcon = document.getElementById("edit-icon-" + prefix + field);
@@ -528,31 +705,37 @@ function closeEditUI(prefix, field) {
 }
 
 async function confirmEdit(prefix, field) {
+  if (parameterWritePending) return;
   const input = document.getElementById("input-" + prefix + field);
   const value = input.value.trim();
-  if (value) {
-    // ⚠️ Threshold sadece tam sayi kabul ediyor (hem RS485 hem BLE firmware
-    // tarafinda) - noktali bir deger ("1.15" gibi) yazilirsa BLE tarafinda
-    // atoi() ondalik kismi SESSIZCE atip "1" kaydediyordu, kullanici "1.15
-    // ayarladim" saniyor ama gercekte "1" oluyordu. Burada acikca reddedip
-    // duzeltmesini istiyoruz.
-    if (field === "threshold" && !/^\d+$/.test(value)) {
-      showError("VRMS eşik değeri sadece tam sayı olabilir (örn. 25) - ondalık nokta kabul edilmiyor.");
-      return;
-    }
-    try {
-      const chr = await getWritableChr(field);
-      await chr.writeValue(encoder.encode(value));
-      // Ayni alanin kisa/uzun ekrandaki HER İKİ kopyasini birlikte guncelle.
-      PREFIXES.forEach((p) => {
-        const el = document.getElementById(p + field);
-        if (el) { el.textContent = value; flashValue(p + field); }
-      });
-    } catch (err) {
-      showError("Yazma hatası: " + err.message);
-    }
+  if (!value) { showToast("Bir değer girin."); return; }
+  if (field === "threshold" && (!/^\d{1,3}$/.test(value) || Number(value) > 999)) {
+    showToast("VRMS eşik değeri 0–999 arasında tam sayı olmalı."); return;
   }
-  closeEditUI(prefix, field);
+  if (field === "loadprofile" && (!/^\d{1,3}$/.test(value) || Number(value) < 1 || Number(value) > 255)) {
+    showToast("Yük profili periyodu 1–255 dakika arasında tam sayı olmalı."); return;
+  }
+  if (field === "calibration" && (!Number.isFinite(Number(value)) || Number(value) <= 0)) {
+    showToast("Kalibrasyon sabiti sıfırdan büyük bir sayı olmalı."); return;
+  }
+  const button = document.getElementById("confirm-icon-" + prefix + field);
+  button.disabled = true;
+  clearError();
+  try {
+    const result = await writeParameterWithPassword(field, value);
+    if (!result) { input.focus(); return; }
+    PREFIXES.forEach((p) => {
+      const el = document.getElementById(p + field);
+      if (el) { el.textContent = result.value; flashValue(p + field); }
+    });
+    closeEditUI(prefix, field);
+    showToast("İşlem başarılı. " + PARAMETER_LABELS[field] + " kaydedildi.", true);
+  } catch (err) {
+    showToast(err.message || "Parametre kaydedilemedi.");
+    input.focus();
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function cancelEdit(prefix, field) {
@@ -577,7 +760,7 @@ PREFIXES.forEach((prefix) => {
 
     input.addEventListener("blur", () => {
       setTimeout(() => {
-        if (input.style.display !== "none") cancelEdit(prefix, field);
+        if (!parameterWritePending && document.activeElement !== input && input.style.display !== "none") cancelEdit(prefix, field);
       }, 150);
     });
 
@@ -610,7 +793,6 @@ async function doShortRead() {
 async function doLongRead() {
   clearError();
   try {
-    await sendCommand("LONG");
     await populateInfoFields("l-");
     await populateLiveFields("l-");
     await readHistoryFull();
@@ -659,7 +841,7 @@ document.getElementById("backFromLong").addEventListener("click", () => showView
 document.getElementById("backFromStatus").addEventListener("click", () => showView("view-menu"));
 
 /* --- Firmware guncelleme (OTA) ---
-   Akis: dosya sec -> onay -> "START:<boyut>" -> dosyayi OTA_CHUNK_SIZE'lik
+   Akis: dosya sec -> sifreyle onay -> parameterWrite "ota" -> OTA_CHUNK_SIZE'lik
    parcalar halinde otaData characteristic'ine yaz -> "FINISH" -> durum
    bildirimini (notify) izleyip ilerleme cubugunu guncelle. Cihaz basariliysa
    birkac saniye icinde kendini resetleyip baglantiyi kesiyor - bu BEKLENEN
@@ -674,7 +856,11 @@ const otaStatusText = document.getElementById("ota-status-text");
 function resetOtaUI() {
   otaSelectedFile = null;
   otaInProgress = false;
+  otaSucceeded = false;
+  otaAwaitingFinish = false;
+  otaTransferError = "";
   otaFileInput.value = "";
+  otaFileInput.disabled = false;
   otaFileLabel.textContent = "Dosya seçmek için dokun (.bin)";
   otaFileLabel.classList.remove("has-file");
   otaProgressWrap.style.display = "none";
@@ -703,61 +889,87 @@ function otaSetProgress(pct, text, cls) {
 /* otaStatus characteristic'inden gelen "IDLE" / "WRITING:45" /
    "SUCCESS_REBOOTING" / "ERROR:<sebep>" metnini ilerleme cubuguna yansitir. */
 function handleOtaStatusText(text) {
+  if (!otaInProgress || otaSucceeded || otaTransferError) return;
   if (text.startsWith("WRITING:")) {
     const pct = parseInt(text.split(":")[1], 10) || 0;
     otaSetProgress(pct, "Yazılıyor... %" + pct);
-  } else if (text === "SUCCESS_REBOOTING") {
+  } else if (text === "SUCCESS_REBOOTING" && otaAwaitingFinish) {
+    otaSucceeded = true;
     otaSetProgress(100, "Başarılı! Cihaz yeniden başlıyor...", "done");
+    showToast("İşlem başarılı. Firmware yüklendi; cihaz yeniden başlıyor.", true);
   } else if (text.startsWith("ERROR:")) {
-    otaSetProgress(0, "Hata: " + text.slice(6), "error");
-    otaInProgress = false;
-    btnStartOta.disabled = false;
-    btnStartOta.textContent = "Tekrar Dene";
+    otaTransferError = text.slice(6);
   }
 }
 
 async function doOta() {
-  if (!otaSelectedFile || otaInProgress) return;
-
-  const ok = await askConfirm(
-    "Cihaza yeni firmware (" + otaSelectedFile.name + ", " + (otaSelectedFile.size / 1024).toFixed(1) + " KB) " +
-    "gönderilecek. İşlem sürerken bağlantıyı kesme veya sayfadan ayrılma. Devam edilsin mi?"
-  );
-  if (!ok) return;
-
+  if (!otaSelectedFile || otaInProgress || parameterWritePending) return;
+  const file = otaSelectedFile;
   clearError();
   otaInProgress = true;
+  otaSucceeded = false;
+  otaAwaitingFinish = false;
+  otaTransferError = "";
   btnStartOta.disabled = true;
-  btnStartOta.textContent = "Güncelleniyor...";
-  otaProgressWrap.style.display = "block";
-  otaSetProgress(0, "Başlıyor...");
-
+  otaFileInput.disabled = true;
+  btnStartOta.textContent = "Onay bekleniyor...";
+  let controlChr, statusChr, startAttempted = false, started = false;
   try {
-    const controlChr = await otaService.getCharacteristic(CHR.otaControl);
+    if (!bleDevice?.gatt?.connected || !otaService) throw new Error("Cihaz bağlantısı yok. Önce cihaza bağlanın.");
+    if (!file.size) throw new Error("Firmware dosyası boş.");
+    controlChr = await otaService.getCharacteristic(CHR.otaControl);
     const dataChr = await otaService.getCharacteristic(CHR.otaData);
-
-    const buf = await otaSelectedFile.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-
-    await controlChr.writeValue(encoder.encode("START:" + bytes.length));
+    statusChr = await otaService.getCharacteristic(CHR.otaStatus);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length !== file.size) throw new Error("Firmware dosyası tam okunamadı.");
+    startAttempted = true;
+    const result = await writeParameterWithPassword("ota", String(bytes.length),
+      file.name + " (" + (file.size / 1024).toFixed(1) + " KB) cihaza yüklenecek. " +
+      "Cihaz şifresini girin. Yükleme boyunca bağlantıyı kesmeyin veya sayfadan ayrılmayın.");
+    if (!result) return;
+    started = true;
+    if (result.value !== String(bytes.length)) throw new Error("OTA başlatma sonucu doğrulanamadı.");
+    btnStartOta.textContent = "Güncelleniyor...";
+    otaProgressWrap.style.display = "block";
+    otaSetProgress(0, "Başlıyor...");
 
     for (let offset = 0; offset < bytes.length; offset += OTA_CHUNK_SIZE) {
+      if (otaTransferError) throw new Error(otaTransferError);
       const chunk = bytes.slice(offset, offset + OTA_CHUNK_SIZE);
-      await dataChr.writeValueWithoutResponse(chunk);
-      // Notify'dan bagimsiz, kendi hesapladigimiz ilerlemeyi de gosteriyoruz -
-      // notify BLE baglanti araligina gore gecikebilir, bu daha akici hissettiriyor.
+      // Her parcanin cihaz tarafindan kabul edildigini bekle; hatada aktarimi durdur.
+      await dataChr.writeValueWithResponse(chunk);
+      if (otaTransferError) throw new Error(otaTransferError);
       const pct = Math.round(((offset + chunk.length) / bytes.length) * 100);
       otaSetProgress(pct, "Gönderiliyor... %" + pct);
     }
 
-    await controlChr.writeValue(encoder.encode("FINISH"));
+    otaAwaitingFinish = true;
     otaSetProgress(100, "Doğrulanıyor...");
+    await controlChr.writeValueWithResponse(encoder.encode("FINISH"));
+    if (!otaSucceeded) handleOtaStatusText(decoder.decode(await statusChr.readValue()));
+    if (!otaSucceeded) throw new Error(otaTransferError || "Cihaz firmware yüklemesini doğrulamadı.");
   } catch (err) {
-    console.error(err);
-    otaSetProgress(0, "Hata: " + err.message, "error");
+    if (otaSucceeded) return; // Basari bildirimi sonrasi beklenen yeniden baslama.
+    if (startAttempted && !err.deviceRejected && bleDevice?.gatt?.connected) {
+      // Flash hatasinin aciklamasini al, yarim kalan kendi oturumumuzu kapat.
+      try {
+        if (started) {
+          const status = decoder.decode(await statusChr.readValue());
+          if (status.startsWith("ERROR:") && !otaTransferError) otaTransferError = status.slice(6);
+        }
+      } catch (_) { /* Baglanti kopmus olabilir. */ }
+      try { await controlChr.writeValueWithResponse(encoder.encode("ABORT")); } catch (_) { /* Oturum zaten kapanmis olabilir. */ }
+    }
+    const message = otaTransferError || err.message;
+    otaProgressWrap.style.display = "block";
+    otaSetProgress(0, "Hata: " + message, "error");
+    showToast(message);
+  } finally {
     otaInProgress = false;
-    btnStartOta.disabled = false;
-    btnStartOta.textContent = "Tekrar Dene";
+    otaAwaitingFinish = false;
+    btnStartOta.disabled = otaSucceeded;
+    otaFileInput.disabled = otaSucceeded;
+    btnStartOta.textContent = otaSucceeded ? "Güncelleme Tamamlandı" : "Güncellemeyi Başlat";
   }
 }
 
@@ -779,19 +991,25 @@ document.getElementById("backFromOta").addEventListener("click", () => {
 /* --- Varsayılan ayarlara sıfırlama: ÖNCE ONAY İSTER, tıklayınca hemen
    yapmaz. Başarılıysa açık olan ekrandaki (kısa/uzun) değerleri de tazeler. --- */
 btnResetDefaults.addEventListener("click", async () => {
+  if (parameterWritePending) return;
   const ok = await askConfirm(
-    "Eşik değeri, kalibrasyon sabiti, load profile periyodu ve baud rate " +
-    "fabrika ayarlarına dönecek. Bu işlem geri alınamaz. Devam edilsin mi?"
+    "Eşik değeri, kalibrasyon sabiti ve yük profili periyodu fabrika ayarlarına dönecek. Devam edilsin mi?"
   );
   if (!ok) return;
-
   clearError();
   try {
-    await sendCommand("RESET_DEFAULTS");
-    await populateInfoFields("s-");
-    await populateInfoFields("l-");
+    const result = await writeParameterWithPassword("defaults", "");
+    if (!result) return;
+    try {
+      await populateInfoFields("s-");
+      await populateInfoFields("l-");
+    } catch {
+      showToast("Ayarlar sıfırlandı, ancak ekran yenilenemedi. Yenile düğmesine basın.");
+      return;
+    }
+    showToast("İşlem başarılı. Varsayılan ayarlar kaydedildi.", true);
   } catch (err) {
-    showError("Sıfırlama hatası: " + err.message);
+    showToast(err.message || "Ayarlar sıfırlanamadı.");
   }
 });
 
@@ -834,6 +1052,9 @@ async function connectToServer() {
   statusService = await server.getPrimaryService(METER_STATUS_SVC);
   otaService = await server.getPrimaryService(METER_OTA_SVC);
   commandChr = await controlService.getCharacteristic(CHR.command);
+  const controlCharacteristics = await controlService.getCharacteristics();
+  recordPageChr = controlCharacteristics.find((chr) => chr.uuid === CHR.recordPage) || null;
+  parameterWriteChr = controlCharacteristics.find((chr) => chr.uuid === CHR.parameterWrite) || null;
 
   // OTA durumu (yazma ilerlemesi/basari/hata) - view-ota ekraninda gosterilecek,
   // ama abonelik baglantida bir kere kuruluyor (diger notify'larla ayni desen).
@@ -879,6 +1100,8 @@ async function pickAndConnect() {
 }
 
 function onDisconnected() {
+  if (otaInProgress && !otaSucceeded) otaTransferError = "Cihaz bağlantısı kesildi. Güncelleme tamamlanmadı.";
+  cancelPasswordPrompt?.();
   setStatus(false, "Bağlantı kesildi");
   showView("view-menu");
   infoService = null;
@@ -887,7 +1110,8 @@ function onDisconnected() {
   statusService = null;
   otaService = null;
   commandChr = null;
-  writableChrCache = {};
+  recordPageChr = null;
+  parameterWriteChr = null;
   // OTA basariyla bitince cihaz KENDINI resetleyip baglantiyi keser - bu
   // BEKLENEN bir "disconnected" olayi, hata degil, bu yuzden UI'i ayrica
   // sifirlamiyoruz (otaInProgress zaten false'a dusmus olur bir sonraki

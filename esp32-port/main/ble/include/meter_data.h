@@ -19,20 +19,29 @@
 /* Includes */
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 /* Defines */
 #define METER_DATA_TASK_PERIOD (1000 / portTICK_PERIOD_MS)
+typedef enum {
+    METER_WRITE_OK,
+    METER_WRITE_INVALID_VALUE,
+    METER_WRITE_STORAGE_ERROR,
+    METER_WRITE_RTC_ERROR,
+    METER_WRITE_BUSY,
+    METER_WRITE_PARTIAL,
+} meter_write_status_t;
 
 /* --- Meter Info: salt okunur + yazilabilir degerler (gercek -rms ciktisindaki
  * alanlarla birebir ayni) --- */
 const char *get_threshold_str(void);
-void set_threshold_str(const uint8_t *data, uint16_t len);
+meter_write_status_t set_threshold_str(const uint8_t *data, uint16_t len);
 
 const char *get_calibration_str(void);
-void set_calibration_str(const uint8_t *data, uint16_t len);
+meter_write_status_t set_calibration_str(const uint8_t *data, uint16_t len);
 
 const char *get_load_profile_period_str(void);
-void set_load_profile_period_str(const uint8_t *data, uint16_t len);
+meter_write_status_t set_load_profile_period_str(const uint8_t *data, uint16_t len);
 
 // ⚠️ Artik tamamen salt okunur - gercek protokolde kalici/degistirilebilir
 // bir "varsayilan baud" kavrami yok (bkz. meter_data_real.c), yaziya
@@ -45,7 +54,7 @@ const char *get_baud_rate_str(void);
  * duzeltebilmek icin kalici cozum. Format: "YYYY-MM-DD HH:MM:SS" (get ile
  * ayni format, round-trip uyumlu). */
 const char *get_rtc_time_str(void);
-void set_rtc_time_str(const uint8_t *data, uint16_t len);
+meter_write_status_t set_rtc_time_str(const uint8_t *data, uint16_t len);
 
 /* Salt okunur - gercek -rms ciktisindaki sabit alanlar */
 const char *get_serial_number_str(void);
@@ -70,6 +79,8 @@ const char *get_vrms_instant_str(void);
 const char *get_load_history_str(void);
 void trigger_short_read(void);
 void trigger_long_read(void);
+// H: gecmis kayit, L: son tarih-araligi sorgusu; cevap en fazla 512 bayt.
+bool prepare_record_page(char kind, uint32_t cursor, char *out, size_t out_size);
 
 /* --- YENI (kullanicinin istegiyle): gercek modem/okuyucu gibi tarih
  * aralikli load profile sorgusu - RS485'teki "P.01(start;end)" mekanizmasinin
@@ -103,7 +114,9 @@ bool free_heap_changed_since_last_check(void);
  * sayfasindaki "Varsayilan Ayarlara Sifirla" ve gecmis kayit "Sil"
  * butonlarindan (ikisi de ONCE ONAY ISTIYOR) Meter Control'un komut
  * characteristic'i uzerinden tetikleniyor. --- */
-void reset_to_defaults(void);
+meter_write_status_t reset_to_defaults(void);
+// field\npassword\nvalue istegi; sifre yalnizca cihazda dogrulanir.
+void meter_write_parameter(const uint8_t *request, uint16_t len, char *response, size_t response_size, uint16_t conn_handle);
 void clear_threshold_history(void);
 void clear_reset_history(void);
 

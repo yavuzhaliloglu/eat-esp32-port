@@ -843,7 +843,7 @@ static void vGetRTCTask(void *pvParameters)
             stall_count = 0;
             previous = current_time;
 
-            PRINTF("NEW FIRMWARE WRITE DEBUG TASK: The Time is: %02u.%02u.20%02u %02u:%02u:%02u\r\n",
+            PRINTF("WRITE DEBUG TASK: The Time is: %02u.%02u.20%02u %02u:%02u:%02u\r\n",
                    current_time.day, current_time.month, current_time.year,
                    current_time.hour, current_time.min, current_time.sec);
         }

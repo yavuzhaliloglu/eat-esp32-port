@@ -9,6 +9,8 @@
  * kuruldu.
  */
 #include <stdlib.h>
+#include <math.h>
+#include <errno.h>
 #include "meter_data.h"
 #include "common.h"
 #include "nvs.h"
@@ -23,6 +25,7 @@
 #include "header/adc.h"
 #include "header/defines.h"
 #include "header/rtc.h"
+#include "header/ota.h"
 
 #define NVS_NAMESPACE "meter_cfg"
 
@@ -57,15 +60,7 @@ static char vrms_instant_buf[16] = "0.0";
 // gibi ~35 byte - rahat sigacak sekilde buyutuldu.
 static char load_history_buf[1024] = "henuz okunmadi";
 
-// ⚠️ BLE'de bir karakteristik degerinin ust siniri 512 BAYT (ATT spesifikasyonu).
-// 10 esik kaydi (351 bayt) + 12 reset kaydi (267 bayt) = 618 bayt ediyor;
-// fazlasi istemciye HIC ulasmiyor ve son kayit ORTADAN kesiliyordu - arayuzde
-// "00 - undefined" olarak gorunen buydu.
-//
-// Karar: yarim kayit gondermektense AZ gondermek. Butceye TAM sigan kadar
-// kayit yaziliyor (pratikte 7 reset kaydi), sigmayan hic yazilmiyor.
-// RS485 tarafi (0.1.2*N) bu sinirdan etkilenmez - orada 12 kaydin tamami
-// gelmeye devam eder.
+// Eski istemci tek deger okur; yeni istemci recordPage ile tumunu sayfalar.
 #define BLE_HISTORY_MAX_BYTES 512
 // En uzun reset kaydi: "R,12,00-01-01,01:44:32;" = 23 bayt
 #define RS_HISTORY_ENTRY_MAX 23
@@ -82,24 +77,21 @@ static void copy_bounded(char *dst, size_t dst_size, const uint8_t *src, uint16_
     dst[n] = '\0';
 }
 
-// NVS'e kalici yazma/okuma - basarisiz olursa (ilk acilis, namespace yok
-// vs.) sessizce gecilir, RAM'deki varsayilan/mevcut deger kullanilmaya
-// devam eder. (dev'in flash'inda kalibrasyon/baud rate icin ayri bir
-// partition/slot yok - bu ikisi icin NVS kullanmak, threshold/load-profile
-// gibi zaten flash'ta gercek yeri olanlardan farkli olarak, en pratik
-// kalicilik yontemi.)
-static void nvs_save_str(const char *key, const char *value)
+// Yazma hatasi BLE'ye iletilir; RAM degeri ancak commit basariliysa degisir.
+// Okumada henuz namespace yoksa baslangic degerleri kullanilir.
+static esp_err_t nvs_save_str(const char *key, const char *value)
 {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "nvs_open basarisiz (%d), '%s' kalici kaydedilemedi", err, key);
-        return;
+        return err;
     }
-    nvs_set_str(handle, key, value);
-    nvs_commit(handle);
+    err = nvs_set_str(handle, key, value);
+    if (err == ESP_OK) err = nvs_commit(handle);
     nvs_close(handle);
+    return err;
 }
 
 static void nvs_load_str(const char *key, char *buf, size_t buf_size)
@@ -123,20 +115,18 @@ const char *get_threshold_str(void)
     return threshold_buf;
 }
 
-void set_threshold_str(const uint8_t *data, uint16_t len)
+meter_write_status_t set_threshold_str(const uint8_t *data, uint16_t len)
 {
-    char tmp[16];
-    copy_bounded(tmp, sizeof(tmp), data, len);
-    int val = atoi(tmp);
-    if (val < 0)
+    if (len == 0 || len > 3) return METER_WRITE_INVALID_VALUE;
+    unsigned value = 0;
+    for (uint16_t i = 0; i < len; i++)
     {
-        return;
+        if (data[i] < '0' || data[i] > '9') return METER_WRITE_INVALID_VALUE;
+        value = value * 10 + data[i] - '0';
     }
-    // dev'in gercek yontemi: setVRMSThresholdValue() + updateThresholdSector()
-    // (uart.c'deki setThresholdValue()'nun ayni ikilisi - flash'a kalici yaziyor)
-    setVRMSThresholdValue((uint16_t)val);
-    updateThresholdSector(th_sector_data);
-    ESP_LOGI(TAG, "BLE: threshold guncellendi (kalici, flash): %d", val);
+    esp_err_t err = saveVRMSThresholdValue((uint16_t)value);
+    if (err == ESP_ERR_TIMEOUT) return METER_WRITE_BUSY;
+    return err == ESP_OK ? METER_WRITE_OK : METER_WRITE_STORAGE_ERROR;
 }
 
 const char *get_calibration_str(void)
@@ -145,18 +135,21 @@ const char *get_calibration_str(void)
     return calibration_buf;
 }
 
-void set_calibration_str(const uint8_t *data, uint16_t len)
+meter_write_status_t set_calibration_str(const uint8_t *data, uint16_t len)
 {
-    char tmp[16];
+    char tmp[32];
+    if (len == 0 || len >= sizeof(tmp) || memchr(data, '\0', len)) return METER_WRITE_INVALID_VALUE;
     copy_bounded(tmp, sizeof(tmp), data, len);
-    float val = atof(tmp);
-    if (val <= 0.0f)
-    {
-        return;
-    }
-    vrms_multiplication_value = val;
-    nvs_save_str("calibration", tmp);
-    ESP_LOGI(TAG, "BLE: kalibrasyon sabiti guncellendi (kalici, NVS): %.2f", val);
+    char *end;
+    errno = 0;
+    float value = strtof(tmp, &end);
+    if (errno || end != tmp + len || !isfinite(value) || value <= 0.0f) return METER_WRITE_INVALID_VALUE;
+    char formatted[sizeof(calibration_buf)];
+    int n = snprintf(formatted, sizeof(formatted), "%.2f", value);
+    if (n < 0 || (size_t)n >= sizeof(formatted)) return METER_WRITE_INVALID_VALUE;
+    if (nvs_save_str("calibration", tmp) != ESP_OK) return METER_WRITE_STORAGE_ERROR;
+    vrms_multiplication_value = value;
+    return METER_WRITE_OK;
 }
 
 const char *get_load_profile_period_str(void)
@@ -165,23 +158,21 @@ const char *get_load_profile_period_str(void)
     return load_profile_buf;
 }
 
-void set_load_profile_period_str(const uint8_t *data, uint16_t len)
+meter_write_status_t set_load_profile_period_str(const uint8_t *data, uint16_t len)
 {
-    char tmp[16];
-    copy_bounded(tmp, sizeof(tmp), data, len);
-    int val = atoi(tmp);
-    if (val <= 0 || val > 255)
+    if (len == 0 || len > 3) return METER_WRITE_INVALID_VALUE;
+    unsigned value = 0;
+    for (uint16_t i = 0; i < len; i++)
     {
-        return;
+        if (data[i] < '0' || data[i] > '9') return METER_WRITE_INVALID_VALUE;
+        value = value * 10 + data[i] - '0';
     }
-    load_profile_record_period = (uint8_t)val;
-    // ⚠️ KARAR DEGISTI: dev'de bu deger flash'a kalici yazilmiyordu (RAM-only,
-    // her aciliste varsayilana donuyordu) - ama kullanici BLE'den yapilan
-    // degisikliklerin resetlenince KAYBOLMAMASINI istedi, bu yuzden BLE
-    // yazma yolu icin NVS'e kalici kaydediliyor (dev'in kendi RS485/RP2040
-    // davranisi degil, sadece bizim yeni BLE yazma yolumuz icin bir ekleme).
-    nvs_save_str("loadprofile", tmp);
-    ESP_LOGI(TAG, "BLE: load profile periyodu guncellendi (kalici, NVS): %d dakika", val);
+    if (value == 0 || value > 255) return METER_WRITE_INVALID_VALUE;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%u", value);
+    if (nvs_save_str("loadprofile", tmp) != ESP_OK) return METER_WRITE_STORAGE_ERROR;
+    load_profile_record_period = (uint8_t)value;
+    return METER_WRITE_OK;
 }
 
 // ⚠️ KARAR DEGISTI - artik tamamen salt okunur: gercek protokolde baud rate
@@ -256,37 +247,27 @@ static uint8_t compute_dotw(int year_full, int month, int day)
 // eslesmiyordu - kalici cozum olarak RTC artik BLE'den yazilabilir, boyle
 // bir daha koda saat gomup yeniden flaslamaya gerek kalmiyor (sahada
 // teknisyen de ayni sekilde duzeltebilir).
-void set_rtc_time_str(const uint8_t *data, uint16_t len)
+meter_write_status_t set_rtc_time_str(const uint8_t *data, uint16_t len)
 {
-    char tmp[32];
+    if (len != 19) return METER_WRITE_INVALID_VALUE;
+    for (uint16_t i = 0; i < len; i++)
+    {
+        char separator = i == 4 || i == 7 ? '-' : i == 10 ? ' ' : i == 13 || i == 16 ? ':' : 0;
+        if (separator ? data[i] != separator : data[i] < '0' || data[i] > '9') return METER_WRITE_INVALID_VALUE;
+    }
+    char tmp[20];
     copy_bounded(tmp, sizeof(tmp), data, len);
-
     int year, month, day, hour, min, sec;
-    if (sscanf(tmp, "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &min, &sec) != 6)
-    {
-        ESP_LOGE(TAG, "BLE: RTC saat formati gecersiz: '%s' (beklenen: YYYY-MM-DD HH:MM:SS)", tmp);
-        return;
-    }
-    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || min > 59 || sec > 59)
-    {
-        ESP_LOGE(TAG, "BLE: RTC saat degerleri gecersiz aralikta: '%s'", tmp);
-        return;
-    }
-
+    if (sscanf(tmp, "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &min, &sec) != 6 ||
+        year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 ||
+        hour > 23 || min > 59 || sec > 59) return METER_WRITE_INVALID_VALUE;
+    static const uint8_t days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    unsigned max_day = days[month - 1] + (month == 2 && year % 4 == 0);
+    if ((unsigned)day > max_day) return METER_WRITE_INVALID_VALUE;
     uint8_t dotw = compute_dotw(year, month, day);
-    uint8_t year2 = (uint8_t)(year % 100);
-
-    if (setTimePt7c4338((uint8_t)sec, (uint8_t)min, (uint8_t)hour, dotw, (uint8_t)day, (uint8_t)month, year2))
-    {
-        // current_time'i hemen guncelle - WriteDebugTask zaten 1sn'de bir
-        // senkronize ediyor ama telefon anlik geri okuyunca dogru gorsun.
-        getTimePt7c4338(&current_time);
-        ESP_LOGI(TAG, "BLE: RTC saati guncellendi: %s", tmp);
-    }
-    else
-    {
-        ESP_LOGE(TAG, "BLE: RTC saati yazilamadi (I2C hatasi?)");
-    }
+    if (!setTimePt7c4338(sec, min, hour, dotw, day, month, year % 100) ||
+        !getTimePt7c4338(&current_time)) return METER_WRITE_RTC_ERROR;
+    return METER_WRITE_OK;
 }
 
 const char *get_serial_number_str(void)
@@ -343,7 +324,17 @@ const char *get_vrms_instant_str(void)
 
 // --- Meter Control: kisa/uzun okuma + gecmis kayit ---
 
-const char *get_load_history_str(void) { return load_history_buf; }
+const char *get_load_history_str(void)
+{
+    static char legacy[BLE_HISTORY_MAX_BYTES + 1];
+    size_t len = strlen(load_history_buf);
+    if (len <= BLE_HISTORY_MAX_BYTES) return load_history_buf;
+    len = BLE_HISTORY_MAX_BYTES;
+    while (len > 0 && load_history_buf[len - 1] != ';') len--;
+    memcpy(legacy, load_history_buf, len);
+    legacy[len] = '\0';
+    return legacy;
+}
 
 void trigger_short_read(void)
 {
@@ -489,10 +480,6 @@ static void append_reset_history(char *out, size_t out_size, size_t *pos)
     // En yeni kayitlar bastadir (*1, *2, ...). Butce yetmezse sondaki
     // eski indeksler atlanir; az sayidaki gercek kayitlar da korunur.
     size_t capacity = (out_size > 0) ? out_size - 1u : 0;
-    if (capacity > BLE_HISTORY_MAX_BYTES)
-    {
-        capacity = BLE_HISTORY_MAX_BYTES;
-    }
     size_t budget = (capacity > *pos) ? (capacity - *pos) : 0;
     uint16_t fits = (uint16_t)(budget / RS_HISTORY_ENTRY_MAX);
     if (fits > RESET_DATES_OBIS_COUNT)
@@ -502,8 +489,7 @@ static void append_reset_history(char *out, size_t out_size, size_t *pos)
 
     if (fits < RESET_DATES_OBIS_COUNT)
     {
-        ESP_LOGW(TAG, "BLE yanit siniri: sondaki %u reset yeri atlandi, ilk %u yer gonderiliyor "
-                      "(RS485'te 12'sinin tamami gelmeye devam ediyor)",
+        ESP_LOGW(TAG, "Gecmis tamponu yetersiz: sondaki %u reset yeri atlandi, ilk %u yer hazirlandi",
                  (unsigned)(RESET_DATES_OBIS_COUNT - fits), (unsigned)fits);
     }
 
@@ -549,7 +535,9 @@ void trigger_long_read(void)
 // (spiflash.c'deki getLoadProfileRecordsAsText/getLoadProfileAvailableDates,
 // AYNI arama mantigini kullanir) BLE karsiligi. ---
 static char load_profile_dates_buf[256];
-static char load_profile_query_buf[2048];
+static char load_profile_query_buf[BLE_HISTORY_MAX_BYTES + 1];
+static load_profile_query_t load_profile_query;
+static bool load_profile_query_valid;
 
 const char *get_load_profile_dates_str(void)
 {
@@ -564,6 +552,7 @@ const char *get_load_profile_query_result_str(void)
 
 void trigger_load_profile_query(const uint8_t *data, uint16_t len)
 {
+    load_profile_query_valid = false;
     char tmp[32];
     copy_bounded(tmp, sizeof(tmp), data, len);
 
@@ -590,8 +579,42 @@ void trigger_load_profile_query(const uint8_t *data, uint16_t len)
     dt_end.min = 59;
     dt_end.sec = 59;
 
-    getLoadProfileRecordsAsText(&dt_start, &dt_end, load_profile_query_buf, sizeof(load_profile_query_buf));
+    uint32_t next;
+    load_profile_query_valid = beginLoadProfileQuery(&dt_start, &dt_end, &load_profile_query);
+    if (!load_profile_query_valid ||
+        !readLoadProfilePage(&load_profile_query, 0, load_profile_query_buf, sizeof(load_profile_query_buf), &next))
+    {
+        load_profile_query_valid = false;
+        snprintf(load_profile_query_buf, sizeof(load_profile_query_buf), "okuma hatasi");
+    }
     ESP_LOGI(TAG, "BLE: load profile sorgusu '%s' -> %d byte sonuc", tmp, (int)strlen(load_profile_query_buf));
+}
+
+// Her yazma tek bir sayfayi hazirlar. Tekrarlanan read/read-blob ayni
+// cevabi okur; okumak cursor'u ilerletmez. P1:<sonraki cursor veya -1>\nveri
+bool prepare_record_page(char kind, uint32_t cursor, char *out, size_t out_size)
+{
+    char payload[481];
+    uint32_t next = UINT32_MAX;
+    if (kind == 'H')
+    {
+        size_t len = strlen(load_history_buf);
+        if (cursor > len) return false;
+        size_t count = len - cursor;
+        if (count > sizeof(payload) - 1) count = sizeof(payload) - 1;
+        memcpy(payload, load_history_buf + cursor, count);
+        payload[count] = '\0';
+        if (cursor + count < len) next = cursor + count;
+    }
+    else if (kind == 'L')
+    {
+        if (!load_profile_query_valid ||
+            !readLoadProfilePage(&load_profile_query, cursor, payload, sizeof(payload), &next))
+            return false;
+    }
+    else return false;
+    int n = snprintf(out, out_size, "P1:%ld\n%s", next == UINT32_MAX ? -1L : (long)next, payload);
+    return n >= 0 && (size_t)n < out_size;
 }
 
 // --- Meter Status (YENI, RS485/protokolde yok) ---
@@ -642,25 +665,100 @@ const char *get_led_status_str(void)
 
 // --- Varsayilan ayarlara donme (YENI, kullanicinin istegiyle eklendi) ---
 // Web sayfasindan "Varsayilan Ayarlara Sifirla" (onay istedikten sonra)
-// gonderilen komutla cagriliyor - yazilabilir 4 alani (threshold,
-// kalibrasyon, load profile periyodu, baud rate) fabrika degerlerine
-// dondurur, hepsini kalici olarak (flash/NVS) yeniden kaydeder.
-void reset_to_defaults(void)
+// gonderilen sifreli istekle cagriliyor - threshold, kalibrasyon ve
+// load profile periyodunu kalici varsayilan degerlerine dondurur.
+meter_write_status_t reset_to_defaults(void)
 {
-    char tmp[16];
+    meter_write_status_t status = set_threshold_str((const uint8_t *)"5", 1);
+    if (status != METER_WRITE_OK) return status;
+    char calibration[32];
+    int len = snprintf(calibration, sizeof(calibration), "%.2f", VRMS_MULTIPLICATION_VALUE);
+    if (len <= 0 || (size_t)len >= sizeof(calibration) ||
+        set_calibration_str((const uint8_t *)calibration, len) != METER_WRITE_OK ||
+        set_load_profile_period_str((const uint8_t *)"15", 2) != METER_WRITE_OK)
+        return METER_WRITE_PARTIAL;
+    return METER_WRITE_OK;
+}
 
-    setVRMSThresholdValue(5);
-    updateThresholdSector(th_sector_data);
+void meter_write_parameter(const uint8_t *request, uint16_t len, char *response, size_t response_size, uint16_t conn_handle)
+{
+    _Static_assert(sizeof(DEVICE_PASSWORD) > 1 && sizeof(DEVICE_PASSWORD) <= 65,
+                   "DEVICE_PASSWORD must contain 1-64 bytes");
+    char buffer[128];
+    snprintf(response, response_size, "ERR:FORMAT");
+    if (len == 0 || len >= sizeof(buffer) || memchr(request, '\0', len)) return;
+    memcpy(buffer, request, len);
+    buffer[len] = '\0';
+    char *password = strchr(buffer, '\n');
+    if (!password) goto done;
+    *password++ = '\0';
+    char *value = strchr(password, '\n');
+    if (!value) goto done;
+    *value++ = '\0';
+    if (strchr(value, '\n')) goto done;
 
-    vrms_multiplication_value = VRMS_MULTIPLICATION_VALUE;
-    snprintf(tmp, sizeof(tmp), "%.2f", vrms_multiplication_value);
-    nvs_save_str("calibration", tmp);
+    // Her istek kendi sifresini tasir; oturumluk acik kilit tutulmaz.
+    size_t password_len = strlen(password);
+    unsigned difference = password_len != sizeof(DEVICE_PASSWORD) - 1;
+    for (size_t i = 0; i < sizeof(DEVICE_PASSWORD) - 1; i++)
+        difference |= (i < password_len ? (uint8_t)password[i] : 0) ^ (uint8_t)DEVICE_PASSWORD[i];
+    if (difference)
+    {
+        snprintf(response, response_size, "ERR:PASSWORD");
+        goto done;
+    }
 
-    load_profile_record_period = 15;
-    nvs_save_str("loadprofile", "15");
+    if (strcmp(buffer, "ota") == 0)
+    {
+        uint32_t size = 0;
+        snprintf(response, response_size, "ERR:VALUE");
+        if (!*value) goto done;
+        for (const char *p = value; *p; p++)
+        {
+            if (*p < '0' || *p > '9' || size > (UINT32_MAX - (uint32_t)(*p - '0')) / 10)
+                goto done;
+            size = size * 10 + (uint32_t)(*p - '0');
+        }
+        if (size == 0) goto done;
+        if (ota_is_busy()) snprintf(response, response_size, "ERR:BUSY");
+        else if (!ota_begin(size, conn_handle))
+            snprintf(response, response_size, "ERR:OTA:%s", ota_get_status_str());
+        else snprintf(response, response_size, "OK:ota\n%lu", (unsigned long)size);
+        goto done;
+    }
 
-    ESP_LOGI(TAG, "BLE: varsayilan ayarlara donuldu (threshold=5, kalibrasyon=%.2f, load_profile=15dk)",
-             vrms_multiplication_value);
+    static const struct {
+        const char *name;
+        meter_write_status_t (*set)(const uint8_t *, uint16_t);
+        const char *(*get)(void);
+    } fields[] = {
+        {"threshold", set_threshold_str, get_threshold_str},
+        {"calibration", set_calibration_str, get_calibration_str},
+        {"loadprofile", set_load_profile_period_str, get_load_profile_period_str},
+        {"rtc", set_rtc_time_str, get_rtc_time_str},
+    };
+    meter_write_status_t status = METER_WRITE_INVALID_VALUE;
+    const char *saved = "";
+    bool known = strcmp(buffer, "defaults") == 0;
+    if (known) status = *value ? METER_WRITE_INVALID_VALUE : reset_to_defaults();
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
+    {
+        if (strcmp(buffer, fields[i].name) != 0) continue;
+        known = true;
+        status = fields[i].set((const uint8_t *)value, strlen(value));
+        if (status == METER_WRITE_OK) saved = fields[i].get();
+        break;
+    }
+    if (!known) snprintf(response, response_size, "ERR:FIELD");
+    else if (status == METER_WRITE_OK) snprintf(response, response_size, "OK:%s\n%s", buffer, saved);
+    else
+    {
+        static const char *errors[] = {"OK", "VALUE", "STORAGE", "RTC", "BUSY", "PARTIAL"};
+        snprintf(response, response_size, "ERR:%s", errors[status]);
+    }
+done:
+    // Sifre loga/kalici belleğe yazilmaz; gecici kopya da temizlenir.
+    for (size_t i = 0; i < sizeof(buffer); i++) ((volatile char *)buffer)[i] = 0;
 }
 
 // --- Gecmis kayitlari silme (YENI, kullanicinin istegiyle eklendi) ---

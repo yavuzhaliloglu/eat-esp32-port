@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "esp_err.h"
 #include "header/project_globals.h"
 
 // dev branch'teki blink/header/spiflash.h dosyasindan uyarlanmistir.
@@ -63,6 +64,8 @@ void send_load_profile_records(uint8_t *buf);
 void checkSectorContent();
 void checkThresholdContent();
 void updateThresholdSector(uint16_t sector_val);
+// BLE ayar yazmasi: kalici yazma basarili olduktan sonra RAM'i gunceller.
+esp_err_t saveVRMSThresholdValue(uint16_t value);
 // th_flash_buf'in tamamini (bir sektor) "threshold_rec" partition'ina yazar -
 // dev'deki adc.c/writeThresholdRecord()'un dogrudan yaptigi flash yazma
 // adiminin ESP32 karsiligi, adc.c'den cagrilir.
@@ -82,6 +85,16 @@ void writeSuddenAmplitudeChangeRecordToFlash(struct AmplitudeChangeTimerCallback
 // dt_start/dt_end araligindaki load profile kayitlarini
 // "tarih,saat,min,max,ortalama;..." formatinda out_buf'a yazar.
 void getLoadProfileRecordsAsText(datetime_t *dt_start, datetime_t *dt_end, char *out_buf, size_t out_buf_size);
+// BLE sayfalari ayni tarih araligi ve halka sinirlari uzerinden ilerler.
+typedef struct {
+    datetime_t start;
+    datetime_t end;
+    uint32_t first_slot;
+    uint32_t slot_count;
+} load_profile_query_t;
+bool beginLoadProfileQuery(datetime_t *start, datetime_t *end, load_profile_query_t *query);
+bool readLoadProfilePage(const load_profile_query_t *query, uint32_t cursor,
+                         char *out, size_t out_size, uint32_t *next_cursor);
 // flash'taki TUM load profile kayitlarinin FARKLI (distinct) tarihlerini
 // "YY-MM-DD,YY-MM-DD,..." formatinda out_buf'a yazar - takvimde hangi
 // gunlerin secilebilir/aktif oldugunu gostermek icin.

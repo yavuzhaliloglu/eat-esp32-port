@@ -199,11 +199,12 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
 
         /* Reset meter data subscription state */
         gatt_svr_reset_subscriptions();
+        gatt_svr_clear_parameter_result(event->disconnect.conn.conn_handle);
 
         /* ⚠️ Yarida kalan bir firmware guncellemesi varsa temizle - aksi
          * halde bir sonraki baglantida ota_begin() "zaten devam ediyor"
          * diyip surekli reddederdi (bulunup duzeltilen gercek hata). */
-        ota_abort();
+        ota_abort(event->disconnect.conn.conn_handle);
 
         /* Restart advertising */
         start_advertising();

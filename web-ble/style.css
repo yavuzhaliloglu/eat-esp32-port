@@ -293,6 +293,58 @@ button#connectBtn:disabled { opacity: 0.6; cursor: default; transform: none; }
   border-color: var(--err);
   color: #fff;
 }
+.modal-btn-row button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.password-dialog {
+  width: min(420px, calc(100% - 32px));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px;
+  color: var(--text);
+  background: var(--card-bg);
+}
+.password-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+.password-dialog h2 { margin-top: 0; }
+.password-dialog label { display: block; margin-bottom: 8px; }
+#devicePassword {
+  width: 100%;
+  margin-bottom: 20px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  width: min(600px, calc(100% - 32px));
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  padding: 16px 48px 16px 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+}
+.toast.success { color: #166534; background: #dcfce7; }
+.toast.error { color: #991b1b; background: #fee2e2; }
+#toastClose {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1.4rem;
+  cursor: pointer;
+}
 
 .danger-btn {
   background: none;
@@ -396,6 +448,18 @@ button#connectBtn:disabled { opacity: 0.6; cursor: default; transform: none; }
   display: none;
 }
 
-#lpQueryResult { margin-top: 12px; }
+#lpQueryResult {
+  margin-top: 12px;
+  max-height: 24rem;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+#lpQueryResult:focus-visible { outline: 2px solid var(--accent); }
+.app-version {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
 .ota-hint { margin-bottom: 14px; }
 #btnStartOta { margin-top: 10px; }

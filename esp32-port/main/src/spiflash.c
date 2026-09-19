@@ -882,110 +882,97 @@ void send_load_profile_records(uint8_t *buf)
 // RS485/BCC cerceveleme yerine duz bir metin tamponuna yaziyor.
 // ============================================================================
 
-// dt_start/dt_end araligindaki load profile kayitlarini
-// "tarih,saat,min,max,ortalama;..." formatinda out_buf'a yazar - mantik
-// send_load_profile_records()'un ana donguyle BIREBIR AYNI (wraparound dahil).
-void getLoadProfileRecordsAsText(datetime_t *dt_start, datetime_t *dt_end, char *out_buf, size_t out_buf_size)
+// Tarih araliginin halka sinirlarini bir kez belirler. Sonraki okumalar
+// bu sinirlar arasinda ilerler ve tampon dolunca cursor ile devam eder.
+bool beginLoadProfileQuery(datetime_t *start, datetime_t *end, load_profile_query_t *query)
 {
-    int64_t start_index = -1;
-    int64_t end_index = -1;
+    memset(query, 0, sizeof(*query));
+    if (!check_datetime_format(start) || !check_datetime_format(end) ||
+        datetimeComp(start, end) > 0)
+    {
+        return false;
+    }
+    int64_t first = -1, last = -1;
+    if (!get_record_indexes(&first, &last, start, end))
+    {
+        return false;
+    }
+    query->start = *start;
+    query->end = *end;
+    if (first < 0 || last < 0)
+    {
+        return true; // Bu aralikta kayit yok.
+    }
+    const uint32_t slots = FLASH_LOAD_PROFILE_RECORD_AREA_SIZE / FLASH_RECORD_SIZE;
+    query->first_slot = (uint32_t)first / FLASH_RECORD_SIZE;
+    uint32_t last_slot = (uint32_t)last / FLASH_RECORD_SIZE;
+    query->slot_count = (last_slot + slots - query->first_slot) % slots + 1;
+    return true;
+}
+
+// Cursor, sorgu baslangicindan itibaren incelenen fiziksel slot sayisidir.
+// Tampon dolunca siradaki kayit sonraki sayfaya kalir; hicbir satir kesilmez.
+// Modulo ile ilerleme, halka donerken fiziksel 0. slotu da dahil eder.
+bool readLoadProfilePage(const load_profile_query_t *query, uint32_t cursor,
+                         char *out, size_t out_size, uint32_t *next_cursor)
+{
+    if (out_size == 0 || cursor > query->slot_count) return false;
+    out[0] = '\0';
+    *next_cursor = UINT32_MAX;
+    if (cursor == query->slot_count) return true;
+
+    const esp_partition_t *part = get_partition(PARTITION_LABEL_LOAD_PROFILE);
+    if (part == NULL || xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) != pdTRUE)
+        return false;
+    const void *mapped = NULL;
+    esp_partition_mmap_handle_t handle;
+    if (esp_partition_mmap(part, 0, FLASH_LOAD_PROFILE_RECORD_AREA_SIZE,
+                           ESP_PARTITION_MMAP_DATA, &mapped, &handle) != ESP_OK)
+    {
+        xSemaphoreGive(xFlashMutex);
+        return false;
+    }
+
     size_t pos = 0;
-    out_buf[0] = '\0';
-
-    if (!check_datetime_format(dt_start) || !check_datetime_format(dt_end))
+    bool ok = true;
+    const uint32_t slots = FLASH_LOAD_PROFILE_RECORD_AREA_SIZE / FLASH_RECORD_SIZE;
+    datetime_t start = query->start, end = query->end;
+    for (; cursor < query->slot_count; cursor++)
     {
-        snprintf(out_buf, out_buf_size, "tarih formati gecersiz");
-        return;
-    }
+        uint32_t slot = (query->first_slot + cursor) % slots;
+        const uint8_t *r = (const uint8_t *)mapped + slot * FLASH_RECORD_SIZE;
+        if (r[0] == 0x00 || r[0] == 0xFF ||
+            !is_record_between_date_values((uint8_t *)r, &start, &end)) continue;
 
-    uint8_t result = get_record_indexes(&start_index, &end_index, dt_start, dt_end);
-    if (result == 0 || (start_index == -1 && end_index == -1))
-    {
-        snprintf(out_buf, out_buf_size, "veri bulunamadi");
-        return;
-    }
-
-    const esp_partition_t *load_profile_part = get_partition(PARTITION_LABEL_LOAD_PROFILE);
-    if (load_profile_part == NULL)
-    {
-        snprintf(out_buf, out_buf_size, "partition bulunamadi");
-        return;
-    }
-
-    uint32_t start_addr = (uint32_t)start_index;
-    uint32_t end_addr = start_index <= end_index
-                             ? (uint32_t)end_index
-                             : (uint32_t)(FLASH_LOAD_PROFILE_RECORD_AREA_SIZE - FLASH_RECORD_SIZE);
-
-    while (start_addr <= end_addr)
-    {
-        if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) == pdTRUE)
+        char entry[48];
+        int n = snprintf(entry, sizeof(entry),
+                         "%c%c-%c%c-%c%c,%c%c:%c%c,%03u.%u,%03u.%u,%03u.%u;",
+                         r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9],
+                         r[12], r[13], r[10], r[11], r[14], r[15]);
+        if (n <= 0 || (size_t)n >= sizeof(entry)) { ok = false; break; }
+        if ((size_t)n >= out_size - pos)
         {
-            const void *mmap_ptr = NULL;
-            esp_partition_mmap_handle_t mmap_handle;
-            if (esp_partition_mmap(load_profile_part, 0, FLASH_LOAD_PROFILE_RECORD_AREA_SIZE, ESP_PARTITION_MMAP_DATA, &mmap_ptr, &mmap_handle) != ESP_OK)
-            {
-                xSemaphoreGive(xFlashMutex);
-                break;
-            }
-            const uint8_t *flash_start_content = (const uint8_t *)mmap_ptr;
-
-            if (flash_start_content[start_addr] == 0xFF ||
-                flash_start_content[start_addr] == 0x00 ||
-                !is_record_between_date_values((uint8_t *)&flash_start_content[start_addr], dt_start, dt_end))
-            {
-                esp_partition_munmap(mmap_handle);
-                xSemaphoreGive(xFlashMutex);
-                start_addr += FLASH_RECORD_SIZE;
-                continue;
-            }
-
-            char year[3], month[3], day[3], hour[3], minute[3];
-            snprintf(year, sizeof(year), "%c%c", flash_start_content[start_addr], flash_start_content[start_addr + 1]);
-            snprintf(month, sizeof(month), "%c%c", flash_start_content[start_addr + 2], flash_start_content[start_addr + 3]);
-            snprintf(day, sizeof(day), "%c%c", flash_start_content[start_addr + 4], flash_start_content[start_addr + 5]);
-            snprintf(hour, sizeof(hour), "%c%c", flash_start_content[start_addr + 6], flash_start_content[start_addr + 7]);
-            snprintf(minute, sizeof(minute), "%c%c", flash_start_content[start_addr + 8], flash_start_content[start_addr + 9]);
-            uint8_t max_v = flash_start_content[start_addr + 10];
-            uint8_t max_dec = flash_start_content[start_addr + 11];
-            uint8_t min_v = flash_start_content[start_addr + 12];
-            uint8_t min_dec = flash_start_content[start_addr + 13];
-            uint8_t mean_v = flash_start_content[start_addr + 14];
-            uint8_t mean_dec = flash_start_content[start_addr + 15];
-
-            esp_partition_munmap(mmap_handle);
-            xSemaphoreGive(xFlashMutex);
-
-            int n = snprintf(out_buf + pos, out_buf_size - pos, "%s-%s-%s,%s:%s,%03d.%d,%03d.%d,%03d.%d;",
-                              year, month, day, hour, minute, min_v, min_dec, max_v, max_dec, mean_v, mean_dec);
-            if (n > 0 && (size_t)n < out_buf_size - pos)
-            {
-                pos += (size_t)n;
-            }
-            else
-            {
-                break; // tampon doldu
-            }
-        }
-        else
-        {
-            led_blink_pattern(LED_ERROR_CODE_FLASH_MUTEX_NOT_TAKEN, false);
+            ok = pos > 0; // En az bir tam kayit sigmali; aksi halde ilerlenemez.
+            *next_cursor = cursor;
             break;
         }
-
-        // send_load_profile_records()'teki AYNI dairesel-tampon (wraparound) mantigi
-        if (start_addr == end_addr && start_index > end_index && start_addr == FLASH_LOAD_PROFILE_RECORD_AREA_SIZE - FLASH_RECORD_SIZE)
-        {
-            start_addr = 0;
-            end_addr = (uint32_t)end_index;
-        }
-
-        start_addr += FLASH_RECORD_SIZE;
+        memcpy(out + pos, entry, (size_t)n + 1);
+        pos += (size_t)n;
     }
+    esp_partition_munmap(handle);
+    xSemaphoreGive(xFlashMutex);
+    return ok;
+}
 
-    if (pos == 0)
+void getLoadProfileRecordsAsText(datetime_t *start, datetime_t *end, char *out, size_t out_size)
+{
+    if (out_size == 0) return;
+    load_profile_query_t query;
+    uint32_t next;
+    if (!beginLoadProfileQuery(start, end, &query) ||
+        !readLoadProfilePage(&query, 0, out, out_size, &next))
     {
-        snprintf(out_buf, out_buf_size, "veri bulunamadi");
+        snprintf(out, out_size, "okuma hatasi");
     }
 }
 
@@ -1144,6 +1131,26 @@ void checkThresholdContent()
 
 // This function writes the given threshold-records-sector value to the
 // "threshold_prm" partition (alongside the current threshold value)
+esp_err_t saveVRMSThresholdValue(uint16_t value)
+{
+    if (value > VRMS_THRESHOLD_MAX) return ESP_ERR_INVALID_ARG;
+    const esp_partition_t *part = get_partition(PARTITION_LABEL_THRESHOLD_PRM);
+    if (part == NULL) return ESP_ERR_NOT_FOUND;
+    if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    if (xSemaphoreTake(xVRMSThresholdMutex, pdMS_TO_TICKS(250)) != pdTRUE)
+    {
+        xSemaphoreGive(xFlashMutex);
+        return ESP_ERR_TIMEOUT;
+    }
+    uint16_t values[2] = {value, th_sector_data};
+    esp_err_t err = esp_partition_erase_range(part, 0, FLASH_SECTOR_SIZE);
+    if (err == ESP_OK) err = esp_partition_write(part, 0, values, sizeof(values));
+    if (err == ESP_OK) vrms_threshold = value;
+    xSemaphoreGive(xVRMSThresholdMutex);
+    xSemaphoreGive(xFlashMutex);
+    return err;
+}
+
 void updateThresholdSector(uint16_t sector_val)
 {
     const esp_partition_t *threshold_prm_part = get_partition(PARTITION_LABEL_THRESHOLD_PRM);

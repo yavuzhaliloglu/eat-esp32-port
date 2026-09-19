@@ -7,11 +7,28 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg">
 <title>Mavi Alp BLE İzleme</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=8">
 </head>
 <body>
 
 <div id="errorBox"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden>
+  <span id="toastText"></span>
+  <button id="toastClose" type="button" aria-label="Bildirimi kapat">×</button>
+</div>
+
+<dialog id="passwordDialog" class="password-dialog" aria-labelledby="passwordTitle">
+  <form id="passwordForm" autocomplete="off">
+    <h2 id="passwordTitle">Cihaz şifresi</h2>
+    <p id="passwordMessage"></p>
+    <label for="devicePassword">Şifre</label>
+    <input id="devicePassword" type="password" maxlength="64" required autocomplete="off" autofocus>
+    <div class="modal-btn-row">
+      <button id="passwordCancel" type="button">Vazgeç</button>
+      <button id="passwordSubmit" class="primary" type="submit">Onayla ve Kaydet</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- ================= ANA MENÜ ================= -->
 <div id="view-menu" class="view active">
@@ -252,7 +269,8 @@
       <span id="lpSelectionText" class="hint">Bir gün seç (aralık için ikinci güne de dokun)</span>
       <button id="lpClearSelection" class="header-btn">Seçimi temizle</button>
     </div>
-    <div id="lpQueryResult">Henüz sorgulanmadı</div>
+    <p id="lpResultSummary" class="hint" role="status"></p>
+    <div id="lpQueryResult" tabindex="0" role="region" aria-label="Yük profili kayıtları">Henüz sorgulanmadı</div>
   </div>
 
   <div class="card">
@@ -265,6 +283,7 @@
   <div class="card">
     <h3>Reset / Açılış Kayıtları (12 slot)</h3>
     <p class="hint">Cihazın en son 12 kere ne zaman açıldığı / yeniden başladığı.</p>
+    <p id="resetHistorySummary" class="hint" role="status"></p>
     <div id="reset-log">Henüz okunmadı</div>
     <button id="btnClearReset" class="danger-btn">Bu Kayıtları Sil</button>
   </div>
@@ -323,7 +342,8 @@
   </div>
 </div>
 
-<script src="/app.js"></script>
+<p id="appVersion" class="app-version" aria-label="Web sürümü"></p>
+<script src="/app.js?v=8"></script>
 
 </body>
 </html>

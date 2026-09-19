@@ -19,25 +19,31 @@
 // gerek yok.
 
 // Yeni bir guncelleme baslatir - toplam byte boyutunu bilerek dogru
-// partition'i (su an aktif OLMAYAN yuva) hazirlar. Basarisizsa false doner,
-// ota_get_status_str() sebebi aciklar.
-bool ota_begin(uint32_t total_size);
+// partition'i (su an aktif OLMAYAN yuva) hazirlar. Once ota_is_busy()
+// kontrol edilir; diger baslatma hatalarini ota_get_status_str() aciklar.
+// Yalnizca DEVICE_PASSWORD dogrulandiktan sonra cagrilir. Guncelleme bu
+// BLE baglantisina aittir; diger baglantilar veri gonderemez/bitiremez.
+bool ota_begin(uint32_t total_size, uint16_t conn_handle);
+bool ota_is_owner(uint16_t conn_handle);
+bool ota_is_busy(void);
 
 // Bir parca firmware verisini yazar (BLE karakteristiginden gelen ham bayt
 // dizisi). ota_begin() basariyla cagrilmadan kullanilamaz.
-bool ota_write_chunk(const uint8_t *data, uint16_t len);
+bool ota_write_chunk(const uint8_t *data, uint16_t len, uint16_t conn_handle);
 
 // Yazmayi bitirir - ESP-IDF kendi butunluk kontrolunu yapar (esp_ota_end).
 // Basarili olursa yeni yuvayi "bundan sonra buradan basla" olarak isaretler
 // ve kisa bir gecikmeyle (BLE bildirimi ulassin diye) cihazi resetler.
-bool ota_finish(void);
+bool ota_finish(uint16_t conn_handle);
 
+// Yalnizca sahibi olan baglantinin yarim kalan guncellemesini iptal eder.
+// Diger baglantilarin kapanmasi devam eden aktarimi etkilemez.
 // Yarim kalan bir guncellemeyi TEMIZ sekilde iptal eder (esp_ota_abort) -
 // BLE baglantisi transfer sirasinda koparsa (kullanici iptal etsin ya da
 // sinyal gitsin fark etmez) cagrilir. Bu cagrilmazsa ota_begin() bir dahaki
 // sefere "zaten devam ediyor" diyip reddederdi - cihaz resetlenene kadar
 // yeni bir guncelleme denemesi YAPILAMAZDI (bulunup duzeltilen gercek hata).
-void ota_abort(void);
+void ota_abort(uint16_t conn_handle);
 
 // Su anki durumu okunabilir bir metin olarak dondurur: "IDLE", "WRITING:45%%",
 // "SUCCESS_REBOOTING", "ERROR:<sebep>" gibi. BLE'nin durum characteristic'i

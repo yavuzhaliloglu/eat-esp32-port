@@ -30,7 +30,7 @@
 // yazildiktan sonra makro degisikligi ise yaramiyordu, sektoru elle silmek
 // gerekiyordu). Uzunluk SERIAL_NUMBER_SIZE (9) olmali - defines.h'deki
 // _Static_assert bunu derleme zamaninda kontrol ediyor.
-#define DEVICE_SERIAL_NUMBER "612600005"
+#define DEVICE_SERIAL_NUMBER "612600006"
 
 // Bluetooth adi: "METER-" oneki ve cihazin seri numarasindan uretilir.
 // Web arayuzu "METER-" ile baslayan adlari filtreler. Bagimsiz bir ad
@@ -51,7 +51,7 @@
 #define PRODUCTION_DATE "26-08-17"
 // Debugs
 // ⚠️ Kullanicinin istegiyle 0 yapildi - monitorde PRINTF ciktisi istenmiyor.
-#define DEBUG 0
+#define DEBUG 1
 
 // vrms multiplier value
 // KARAR: 150 -> 148.8 olarak guncellendi. Eski deger hocanin "ayni kalsin,
@@ -61,7 +61,7 @@
 // birlikte port kodunda da benimsendi (bkz. CLAUDE.md Asama 2 Madde 5-6).
 // Rapor icin: hocaya resmi onay/rapor notu olarak iletilmesi hala faydali,
 // ama port kodu acisindan artik bloklayici degil.
-#define VRMS_MULTIPLICATION_VALUE 148.8f
+#define VRMS_MULTIPLICATION_VALUE 158.8f
 
 // watchdog timeout ms to reset device
 // dev branch'te bu deger RP2040'in donanim watchdog'unun 24-bit sayac limitine

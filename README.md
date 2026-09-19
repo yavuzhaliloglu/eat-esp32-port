@@ -208,13 +208,43 @@ Beş GATT servisi var:
 | Meter Live | VRMS max/min/ortalama (load profile periyodunda güncellenir) + VRMS anlık (her ölçüm penceresinde güncellenir) |
 | Meter Control | komut yazma (kısa/uzun okuma tetikleme, tarih-aralıklı load profile sorgusu, varsayılana sıfırlama, geçmiş kayıt silme) + geçmiş kayıt okuma |
 | Meter Status | çalışma süresi, boş bellek, ADC örnekleme hızı, LED/görev sağlığı durumu - bunların hiçbiri RS485 protokolünde yok, sadece BLE'ye özel |
-| Meter OTA | firmware güncelleme - komut (`START:<boyut>`/`FINISH`), veri (ham firmware parçaları), durum (okuma+notify) - detay aşağıda |
+| Meter OTA | firmware güncelleme - şifreyle başlatma, komut (`FINISH`/`ABORT`), veri (ham firmware parçaları), durum (okuma+notify) - detay aşağıda |
 
-Şifre/eşleştirme yok - fiziksel yakınlık zaten doğal bir güvenlik sınırı olarak yeterli görüldü.
+Eşik, kalibrasyon, yük profili periyodu ve tarih/saat değişiklikleri ile
+varsayılan ayarlara dönüş ve OTA güncellemesi, her işlemde cihaz şifresi ister. Şifre ESP'de
+`project_conf.h` içindeki `DEVICE_PASSWORD` ile karşılaştırılır; web
+dosyalarında bulunmaz ve tarayıcıda saklanmaz. Eski şifresiz parametre yazma
+yolu kapalıdır. Okumalar şifresizdir; BLE eşleştirme kullanılmaz.
+
+Web **v8** ile güncel ESP firmware'i birlikte kullanılmalıdır. Meter Control
+içindeki `00000630-5453-4554-2d45-4c422d52544d` alanına
+`alan\nşifre\ndeğer` yazılıp aynı alandan işlem sonucu okunur. Sonuç bağlantıya
+özeldir: başarıda `OK:alan\nkaydedilen_değer`, hatada `ERR:kod` döner. Şifre
+her istekte yeniden doğrulanır. Yalnızca cihaz başarı bildirdiğinde yeşil
+bildirim gösterilir; yanlış şifre, geçersiz değer ve yazma hataları kırmızı
+bildirimle gösterilir. Eski firmware ile okuma sürer, şifreli değişiklik için
+güncelleme istenir. Kayıt silme mevcut ayrı onay akışını kullanır.
 
 Web sayfası ekran/menü tabanlı: Kısa Okuma, Uzun Okuma, Kart Durumu. Uzun Okuma ekranında ayrıca bir takvim var - flash'ta gerçekten veri olan günler aktif/tıklanabilir görünüyor, olmayanlar soluk kalıyor, bir gün (veya aralık) seçince RS485'teki gerçek `P.01(start;end)` sorgusunun BLE karşılığı çalışıp o aralığın verilerini gösteriyor.
 
+Yük profili sonuçları en fazla `24rem` yüksekliğindeki kaydırılabilir alanda
+gösterilir. Tüm kayıtları ve 12 reset yerini okuyabilmek için web sayfası ile
+ESP firmware'i birlikte güncellenmelidir. Meter Control içindeki
+`00000530-5453-4554-2d45-4c422d52544d` alanına `H:<cursor>` (geçmiş) veya
+`L:<cursor>` (son yük profili sorgusu) yazılır; ardından
+`P1:<sonraki cursor>\n<veri>` okunur. İlk cursor `0`, bitiş değeri `-1`'dir.
+Her yanıt 512 bayttan küçüktür; yük profili flash'tan sayfa sayfa okunur.
+Eski firmware'de sayfa mevcut okuma yöntemini kullanır ve kayıtların eksik
+olabileceğini belirtir. Eski cihazların göndermediği kayıtlar yalnızca web
+sayfası değiştirilerek elde edilemez.
+
 BLE'den gelen hiçbir veri `innerHTML` ile sayfaya eklenmiyor (hep `textContent`/DOM node) - eşleştirme olmadığı için sayacın adını taklit eden sahte bir cihaz kötü niyetli HTML/script gönderebilir, bunu kapatmak için. Sayfa PWA - bir kere internetle açılınca sonraki yenilemeler internet olmadan da çalışıyor.
+
+Web güncellemelerinde `index.html` içindeki `app.js?v=8` / `style.css?v=8`,
+`app.js` içindeki `WEB_APP_VERSION` ve `sw.js` içindeki cache/asset sürümleri
+birlikte artırılır. Sayfanın altındaki “Web v8” yazısı yüklenen JavaScript
+sürümünü gösterir. Service worker çevrimiçiyken HTTP önbelleğini sunucuyla
+doğrular; çevrimdışıyken uygulama önbelleğini kullanır.
 
 ## Firmware güncelleme (OTA)
 
@@ -225,7 +255,18 @@ Kartı yeniden USB'ye takmadan, BLE üzerinden yeni firmware yükleyebiliyoruz. 
 | `otadata` | Hangi yuvanın (aşağıdakilerden) aktif olduğunu tutan küçük (8KB) bir kayıt - **iki kopya** halinde (sıra numarası + checksum ile), tek kopya bozulsa bile diğeri geçerliliğini korur |
 | `ota_0` / `ota_1` | İki ayrı 1MB'lık uygulama alanı - cihaz her zaman birinden çalışıyor, güncelleme DİĞERİNE yazılıyor |
 
-**Akış**: web sayfasından `.bin` dosyası seçilip onaylanınca, dosya küçük parçalar halinde BLE'den gönderiliyor (`esp_ota_write`), bitince ESP-IDF kendi bütünlük kontrolünü yapıyor (`esp_ota_end` - checksum/imza doğrulaması, elle MD5 hesaplamamıza gerek yok) ve başarılıysa "bundan sonra diğer yuvadan başla" diye işaretlenip (`esp_ota_set_boot_partition`) cihaz resetleniyor.
+**Akış**: web sayfasından `.bin` dosyası seçilip cihaz şifresiyle onaylanınca, dosya küçük parçalar halinde BLE'den gönderiliyor (`esp_ota_write`), bitince ESP-IDF kendi bütünlük kontrolünü yapıyor (`esp_ota_end` - checksum/imza doğrulaması, elle MD5 hesaplamamıza gerek yok) ve başarılıysa "bundan sonra diğer yuvadan başla" diye işaretlenip (`esp_ota_set_boot_partition`) cihaz resetleniyor.
+
+OTA başlatma isteği aynı korumalı `parameterWrite` alanına
+`ota\nşifre\nboyut` olarak gönderilir. ESP, `DEVICE_PASSWORD` doğrulanmadan
+OTA alanını hazırlamaz. `OK:ota\nboyut` yanıtından sonra firmware parçaları
+onaylı BLE yazmalarıyla aktarılır. Eski şifresiz `START` komutu kapalıdır;
+veri, `FINISH` ve `ABORT` yalnızca güncellemeyi başlatan bağlantıdan kabul
+edilir. Bağlantı kopması veya yazma hatası oturumu temizler; yeniden denemek
+şifre gerektirir. Eksik veya belirtilenden fazla veri kabul edilmez.
+Başarı bildirimi, ESP imajı doğrulayıp açılacak partition'ı ayarladıktan
+sonra gösterilir. Şifreli OTA desteklemeyen eski firmware için ilk geçiş
+USB üzerinden yapılmalıdır; web eski şifresiz yönteme geri dönmez.
 
 **Bootloader nasıl karar veriyor**: ESP-IDF'in kendi 2. aşama bootloader'ı (biz yazmadık, framework'ün standart parçası) her açılışta `otadata`'daki iki kopyayı okuyup checksum'ı geçerli olan ve sıra numarası büyük olanı esas alıyor, seçtiği yuvanın imaj başlığını doğruluyor, sonra oraya atlıyor. Ayrıca **otomatik geri alma (rollback)** açık (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`): yeni yazılan yuva ilk açılışta "onaylanmamış" durumda başlıyor, kod `esp_ota_mark_app_valid_cancel_rollback()`'e (bizde `app_main()`'in sonunda) kadar sorunsuz gelirse "sağlıklı" işaretleniyor - gelemezse (çöker/sürekli resetlenirse), bir sonraki açılışta bootloader kendiliğinden bir önceki (bilinen sağlam) yuvaya dönüyor. Yani yarım/bozuk bir güncelleme cihazı asla kalıcı olarak bozamıyor.
 

@@ -16,6 +16,8 @@ static const esp_partition_t *s_update_partition = NULL;
 static uint32_t s_total_size = 0;
 static uint32_t s_written_size = 0;
 static bool s_in_progress = false;
+static bool s_reboot_pending = false;
+static uint16_t s_owner = UINT16_MAX;
 static char s_status_buf[64] = "IDLE";
 
 // ota_finish() basarili olunca, BLE bildirimi ("SUCCESS_REBOOTING") karsi
@@ -27,11 +29,22 @@ static void reboot_timer_cb(void *arg)
     esp_restart();
 }
 
-bool ota_begin(uint32_t total_size)
+bool ota_is_owner(uint16_t conn_handle)
 {
-    if (s_in_progress)
+    return s_in_progress && s_owner == conn_handle;
+}
+
+bool ota_is_busy(void)
+{
+    return s_in_progress || s_reboot_pending;
+}
+
+bool ota_begin(uint32_t total_size, uint16_t conn_handle)
+{
+    if (ota_is_busy()) return false;
+    if (total_size == 0 || conn_handle == UINT16_MAX)
     {
-        snprintf(s_status_buf, sizeof(s_status_buf), "ERROR:zaten devam ediyor");
+        snprintf(s_status_buf, sizeof(s_status_buf), "ERROR:gecersiz boyut veya baglanti");
         return false;
     }
 
@@ -65,15 +78,18 @@ bool ota_begin(uint32_t total_size)
     s_total_size = total_size;
     s_written_size = 0;
     s_in_progress = true;
+    s_owner = conn_handle;
     snprintf(s_status_buf, sizeof(s_status_buf), "WRITING:0");
     return true;
 }
 
-bool ota_write_chunk(const uint8_t *data, uint16_t len)
+bool ota_write_chunk(const uint8_t *data, uint16_t len, uint16_t conn_handle)
 {
-    if (!s_in_progress)
+    if (!ota_is_owner(conn_handle)) return false;
+    if (len == 0 || len > s_total_size - s_written_size)
     {
-        snprintf(s_status_buf, sizeof(s_status_buf), "ERROR:once START gonderilmeli");
+        ota_abort(conn_handle);
+        snprintf(s_status_buf, sizeof(s_status_buf), "ERROR:gecersiz veri boyutu");
         return false;
     }
 
@@ -81,7 +97,7 @@ bool ota_write_chunk(const uint8_t *data, uint16_t len)
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "esp_ota_write basarisiz: %s", esp_err_to_name(err));
-        s_in_progress = false;
+        ota_abort(conn_handle);
         snprintf(s_status_buf, sizeof(s_status_buf), "ERROR:yazma hatasi");
         return false;
     }
@@ -96,16 +112,19 @@ bool ota_write_chunk(const uint8_t *data, uint16_t len)
     return true;
 }
 
-bool ota_finish(void)
+bool ota_finish(uint16_t conn_handle)
 {
-    if (!s_in_progress)
+    if (!ota_is_owner(conn_handle)) return false;
+    if (s_written_size != s_total_size)
     {
-        snprintf(s_status_buf, sizeof(s_status_buf), "ERROR:aktif guncelleme yok");
+        ota_abort(conn_handle);
+        snprintf(s_status_buf, sizeof(s_status_buf), "ERROR:eksik firmware verisi");
         return false;
     }
 
     esp_err_t err = esp_ota_end(s_ota_handle);
     s_in_progress = false;
+    s_owner = UINT16_MAX;
 
     if (err != ESP_OK)
     {
@@ -127,6 +146,7 @@ bool ota_finish(void)
 
     ESP_LOGI(TAG, "OTA tamamlandi, '%s' bir sonraki acilista aktif olacak.", s_update_partition->label);
     snprintf(s_status_buf, sizeof(s_status_buf), "SUCCESS_REBOOTING");
+    s_reboot_pending = true;
 
     const esp_timer_create_args_t timer_args = {
         .callback = reboot_timer_cb,
@@ -135,7 +155,7 @@ bool ota_finish(void)
     esp_timer_handle_t timer;
     if (esp_timer_create(&timer_args, &timer) == ESP_OK)
     {
-        esp_timer_start_once(timer, 2000000); // 2 saniye - BLE bildirimi ulassin diye
+        if (esp_timer_start_once(timer, 2000000) != ESP_OK) esp_restart();
     }
     else
     {
@@ -146,9 +166,9 @@ bool ota_finish(void)
     return true;
 }
 
-void ota_abort(void)
+void ota_abort(uint16_t conn_handle)
 {
-    if (!s_in_progress)
+    if (!ota_is_owner(conn_handle))
     {
         return;
     }
@@ -156,6 +176,7 @@ void ota_abort(void)
     ESP_LOGW(TAG, "OTA yarida kesildi (baglanti koptu/iptal edildi), temizleniyor...");
     esp_ota_abort(s_ota_handle);
     s_in_progress = false;
+    s_owner = UINT16_MAX;
     snprintf(s_status_buf, sizeof(s_status_buf), "IDLE");
 }
 

@@ -27,7 +27,7 @@
  * setter == NULL ise write denemesi reddedilir (salt okunur alanlar icin). */
 typedef struct {
     const char *(*getter)(void);
-    void (*setter)(const uint8_t *data, uint16_t len);
+    meter_write_status_t (*setter)(const uint8_t *data, uint16_t len);
 } rw_field_t;
 
 /* Private function declarations */
@@ -37,6 +37,10 @@ static int meter_live_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                  struct ble_gatt_access_ctxt *ctxt, void *arg);
 static int command_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                               struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int record_page_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg);
+static int parameter_write_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                      struct ble_gatt_access_ctxt *ctxt, void *arg);
 static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg);
 static int ota_data_chr_access(uint16_t conn_handle, uint16_t attr_handle,
@@ -123,6 +127,16 @@ static const ble_uuid128_t load_profile_dates_chr_uuid =
     BLE_UUID128_INIT(METER_UUID_BASE, 0x30, 0x03, 0x00, 0x00);
 static const ble_uuid128_t load_profile_data_chr_uuid =
     BLE_UUID128_INIT(METER_UUID_BASE, 0x30, 0x04, 0x00, 0x00);
+static const ble_uuid128_t record_page_chr_uuid =
+    BLE_UUID128_INIT(METER_UUID_BASE, 0x30, 0x05, 0x00, 0x00);
+static const ble_uuid128_t parameter_write_chr_uuid =
+    BLE_UUID128_INIT(METER_UUID_BASE, 0x30, 0x06, 0x00, 0x00);
+
+static struct {
+    bool used;
+    uint16_t connection;
+    char response[80];
+} parameter_results[CONFIG_BT_NIMBLE_MAX_CONNECTIONS];
 
 static uint16_t command_chr_val_handle;
 static uint16_t load_history_chr_val_handle;
@@ -152,7 +166,7 @@ static uint16_t adc_rate_chr_val_handle;
 static uint16_t led_status_chr_val_handle;
 
 /* --- Meter OTA servisi (YENI - BLE uzerinden firmware guncelleme):
- * control (write: "START:<toplam_byte>" / "FINISH"), data (write: ham
+ * control (write: "FINISH" / "ABORT"), data (write: ham
  * firmware baytlari, kucuk parcalar halinde), status (read+notify: "IDLE",
  * "WRITING:45", "SUCCESS_REBOOTING", "ERROR:<sebep>"). Is mantigi ota.c'de -
  * burada sadece BLE'ye baglama var. --- */
@@ -281,6 +295,12 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
               .arg = (void *)get_load_profile_query_result_str,
               .flags = BLE_GATT_CHR_F_READ,
               .val_handle = &load_profile_data_chr_val_handle},
+             {.uuid = &record_page_chr_uuid.u,
+              .access_cb = record_page_chr_access,
+              .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE},
+             {.uuid = &parameter_write_chr_uuid.u,
+              .access_cb = parameter_write_chr_access,
+              .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE},
              {0, /* No more characteristics in this service. */}}},
 
     /* Meter Status service - kart durumu (RS485/protokolde yok, sadece BLE) */
@@ -369,21 +389,10 @@ static int meter_info_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
-    case BLE_GATT_ACCESS_OP_WRITE_CHR: {
-        if (field->setter == NULL) {
-            ESP_LOGE(TAG, "write rejected (salt okunur alan), attr_handle=%d", attr_handle);
-            return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
-        }
-        uint8_t buf[24];
-        uint16_t len;
-        int rc = copy_write_data(ctxt, buf, sizeof(buf), &len);
-        if (rc != 0) {
-            return BLE_ATT_ERR_UNLIKELY;
-        }
-        ESP_LOGI(TAG, "characteristic write; conn_handle=%d attr_handle=%d", conn_handle, attr_handle);
-        field->setter(buf, len);
-        return 0;
-    }
+    case BLE_GATT_ACCESS_OP_WRITE_CHR:
+        // Eski/sifresiz BLE yazma yolu kapali. Ayarlar yalnizca sifreli
+        // parameterWrite istegiyle degistirilir.
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     default:
         ESP_LOGE(TAG, "unexpected access operation to meter info characteristic, opcode: %d", ctxt->op);
@@ -408,6 +417,74 @@ static int meter_live_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     const char *value = getter();
     int rc = os_mbuf_append(ctxt->om, value, strlen(value));
     return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+/* Sayfali aktarim: H:<cursor> veya L:<cursor> yaz, hazirlanan sayfayi oku.
+ * Read Blob tekrarlarinda ayni tampon doner; parcalar kaybolmaz. */
+static int record_page_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    static char page[513];
+    static uint16_t owner = BLE_HS_CONN_HANDLE_NONE;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t request[16];
+        uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+        if (len < 3 || len >= sizeof(request)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        if (copy_write_data(ctxt, request, sizeof(request), &len) != 0)
+            return BLE_ATT_ERR_UNLIKELY;
+        if ((request[0] != 'H' && request[0] != 'L') || request[1] != ':')
+            return BLE_ATT_ERR_UNLIKELY;
+        for (uint16_t i = 2; i < len; i++)
+            if (request[i] < '0' || request[i] > '9') return BLE_ATT_ERR_UNLIKELY;
+        unsigned long cursor = strtoul((char *)request + 2, NULL, 10);
+        // Her iki veri kumesinin cursor'u da 3072 slot / 1024 bayt altinda.
+        if (cursor > 3072) return BLE_ATT_ERR_UNLIKELY;
+        owner = BLE_HS_CONN_HANDLE_NONE;
+        if (!prepare_record_page((char)request[0], (uint32_t)cursor, page, sizeof(page)))
+            return BLE_ATT_ERR_UNLIKELY;
+        owner = conn_handle;
+        return 0;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR || owner != conn_handle)
+        return BLE_ATT_ERR_UNLIKELY;
+    return os_mbuf_append(ctxt->om, page, strlen(page)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+void gatt_svr_clear_parameter_result(uint16_t conn_handle)
+{
+    for (size_t i = 0; i < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; i++)
+        if (parameter_results[i].used && parameter_results[i].connection == conn_handle)
+            memset(&parameter_results[i], 0, sizeof(parameter_results[i]));
+}
+
+static int parameter_write_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                      struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    size_t slot = CONFIG_BT_NIMBLE_MAX_CONNECTIONS;
+    for (size_t i = 0; i < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; i++)
+        if (parameter_results[i].used && parameter_results[i].connection == conn_handle) { slot = i; break; }
+    if (slot == CONFIG_BT_NIMBLE_MAX_CONNECTIONS)
+    {
+        for (size_t i = 0; i < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; i++)
+            if (!parameter_results[i].used) { slot = i; break; }
+        if (slot == CONFIG_BT_NIMBLE_MAX_CONNECTIONS) return BLE_ATT_ERR_INSUFFICIENT_RES;
+        parameter_results[slot].used = true;
+        parameter_results[slot].connection = conn_handle;
+        strcpy(parameter_results[slot].response, "READY");
+    }
+    char *response = parameter_results[slot].response;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR)
+    {
+        uint8_t request[128];
+        uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+        strcpy(response, "ERR:FORMAT");
+        if (len == 0 || len >= sizeof(request)) return 0;
+        if (copy_write_data(ctxt, request, sizeof(request), &len) != 0) return BLE_ATT_ERR_UNLIKELY;
+        meter_write_parameter(request, len, response, sizeof(parameter_results[slot].response), conn_handle);
+        for (size_t i = 0; i < sizeof(request); i++) ((volatile uint8_t *)request)[i] = 0;
+        return 0;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_UNLIKELY;
+    return os_mbuf_append(ctxt->om, response, strlen(response)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 /* Komut characteristic'i: "SHORT" -> kisa okuma, "LONG" -> uzun okuma */
@@ -435,9 +512,7 @@ static int command_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     } else if (strcmp((char *)buf, "LONG") == 0) {
         trigger_long_read();
     } else if (strcmp((char *)buf, "RESET_DEFAULTS") == 0) {
-        /* Web sayfasi zaten telefonda onay istiyor - burada tekrar sormaya
-         * gerek yok, komut geldiyse kullanici zaten onaylamis demektir. */
-        reset_to_defaults();
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR; // Sifresiz toplu degisiklik de yasak.
     } else if (strcmp((char *)buf, "CLEAR_THRESHOLD") == 0) {
         clear_threshold_history();
     } else if (strcmp((char *)buf, "CLEAR_RESET") == 0) {
@@ -451,8 +526,8 @@ static int command_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     return 0;
 }
 
-/* OTA kontrol: "START:<toplam_byte>" ile yeni bir guncelleme baslatir,
- * "FINISH" ile bitirir (basariliysa cihaz kisa bir sure sonra resetlenir). */
+/* Baslatma yalnizca sifreli parameterWrite "ota" istegiyle yapilir.
+ * FINISH/ABORT komutlarini yalnizca guncellemeyi baslatan baglanti verebilir. */
 static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)arg;
@@ -461,26 +536,22 @@ static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         return BLE_ATT_ERR_UNLIKELY;
     }
 
+    if (!ota_is_owner(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     uint8_t buf[32];
-    uint16_t len;
+    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len == 0 || len >= sizeof(buf)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     int rc = copy_write_data(ctxt, buf, sizeof(buf), &len);
     if (rc != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
 
-    ESP_LOGI(TAG, "ota control command: %s", (char *)buf);
-
-    if (strncmp((char *)buf, "START:", 6) == 0) {
-        uint32_t total_size = (uint32_t)strtoul((char *)buf + 6, NULL, 10);
-        ota_begin(total_size);
-    } else if (strcmp((char *)buf, "FINISH") == 0) {
-        ota_finish();
-    } else {
-        ESP_LOGE(TAG, "bilinmeyen ota komutu: %s", (char *)buf);
-    }
+    bool ok;
+    if (len == 6 && memcmp(buf, "FINISH", 6) == 0) ok = ota_finish(conn_handle);
+    else if (len == 5 && memcmp(buf, "ABORT", 5) == 0) { ota_abort(conn_handle); ok = true; }
+    else return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     send_ota_status_indication();
-    return 0;
+    return ok ? 0 : BLE_ATT_ERR_UNLIKELY;
 }
 
 /* OTA veri: firmware binary'sinin bir parcasi - dogrudan ota_write_chunk()'a
@@ -495,15 +566,17 @@ static int ota_data_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     }
 
     static uint8_t chunk_buf[512];
-    uint16_t len;
-    int rc = copy_write_data(ctxt, chunk_buf, sizeof(chunk_buf), &len);
+    if (!ota_is_owner(conn_handle)) return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len == 0 || len > sizeof(chunk_buf)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    int rc = ble_hs_mbuf_to_flat(ctxt->om, chunk_buf, len, NULL);
     if (rc != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
 
-    ota_write_chunk(chunk_buf, len);
+    bool ok = ota_write_chunk(chunk_buf, len, conn_handle);
     send_ota_status_indication();
-    return 0;
+    return ok ? 0 : BLE_ATT_ERR_UNLIKELY;
 }
 
 /* Public functions */
