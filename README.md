@@ -212,19 +212,27 @@ Beş GATT servisi var:
 | Meter OTA | firmware güncelleme - şifreyle başlatma, komut (`FINISH`/`ABORT`), veri (ham firmware parçaları), durum (okuma+notify) - detay aşağıda |
 
 Eşik, kalibrasyon, yük profili periyodu ve tarih/saat değişiklikleri ile
-varsayılan ayarlara dönüş ve OTA güncellemesi, her işlemde cihaz şifresi ister. Şifre ESP'de
+varsayılan ayarlara dönüş, eşik/reset geçmişini silme ve OTA güncellemesi,
+her işlemde cihaz şifresi ister. Şifre ESP'de
 `project_conf.h` içindeki `DEVICE_PASSWORD` ile karşılaştırılır; web
 dosyalarında bulunmaz ve tarayıcıda saklanmaz. Eski şifresiz parametre yazma
 yolu kapalıdır. Okumalar şifresizdir; BLE eşleştirme kullanılmaz.
 
-Web **v8 ve sonrasındaki** şifreli işlemler için güncel ESP firmware'i kullanılmalıdır. Meter Control
+Web arayüzündeki şifreli işlemler için güncel ESP firmware'i kullanılmalıdır. Meter Control
 içindeki `00000630-5453-4554-2d45-4c422d52544d` alanına
 `alan\nşifre\ndeğer` yazılıp aynı alandan işlem sonucu okunur. Sonuç bağlantıya
 özeldir: başarıda `OK:alan\nkaydedilen_değer`, hatada `ERR:kod` döner. Şifre
 her istekte yeniden doğrulanır. Yalnızca cihaz başarı bildirdiğinde yeşil
 bildirim gösterilir; yanlış şifre, geçersiz değer ve yazma hataları kırmızı
 bildirimle gösterilir. Eski firmware ile okuma sürer, şifreli değişiklik için
-güncelleme istenir. Kayıt silme mevcut ayrı onay akışını kullanır.
+güncelleme istenir. Kayıt silme ve varsayılanlara dönüş önce işlem onayı,
+ardından her seferinde cihaz şifresi ister; vazgeçilirse işlem gönderilmez.
+Silme istekleri `clear_threshold\nşifre\n` ve `clear_reset\nşifre\n`,
+varsayılanlara dönüş `defaults\nşifre\n` biçimindedir (değer alanı boştur).
+Eski `CLEAR_THRESHOLD`, `CLEAR_RESET` ve `RESET_DEFAULTS` komutları ESP'de
+reddedilir. Yeni silme alanlarını desteklemeyen firmware'e şifresiz komutla
+geri dönülmez. Flash silme, kilit veya kayıt konumu yazma hataları da kırmızı
+bildirilir; silme başarılı olup ekran yenilenemezse bu durum ayrıca belirtilir.
 
 Eşik voltajı **1–999 V** arasında tam sayı olmalıdır; `0` kabul edilmez.
 Kalibrasyon sabiti sıfırdan büyük, sonlu ve en fazla **15 karakterlik** bir
@@ -249,10 +257,11 @@ sayfası değiştirilerek elde edilemez.
 
 BLE'den gelen hiçbir veri `innerHTML` ile sayfaya eklenmiyor (hep `textContent`/DOM node) - eşleştirme olmadığı için sayacın adını taklit eden sahte bir cihaz kötü niyetli HTML/script gönderebilir, bunu kapatmak için. Sayfa PWA - bir kere internetle açılınca sonraki yenilemeler internet olmadan da çalışıyor.
 
-Web güncellemelerinde `index.html` içindeki `app.js?v=10` / `style.css?v=10`,
-`app.js` içindeki `WEB_APP_VERSION` ve `sw.js` içindeki cache/asset sürümleri
-birlikte artırılır. Sayfanın altındaki “Web v10” yazısı yüklenen JavaScript
-sürümünü gösterir. Service worker çevrimiçiyken HTTP önbelleğini sunucuyla
+Sayfanın altındaki “Web v1” yazısı uygulama sürümünü gösterir. `index.html`
+içindeki `app.js?v=1` / `style.css?v=1` adresleri ve `sw.js` içindeki asset
+adresleri eşleşmeli; cache adı `mavi-alp-ble-v1` olmalıdır. Uygulama sürümü
+değiştiğinde bu değerler ve `WEB_APP_VERSION` birlikte güncellenir.
+Service worker çevrimiçiyken HTTP önbelleğini sunucuyla
 doğrular; çevrimdışıyken uygulama önbelleğini kullanır.
 
 ## Firmware güncelleme (OTA)

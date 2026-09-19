@@ -740,10 +740,24 @@ void meter_write_parameter(const uint8_t *request, uint16_t len, char *response,
         {"loadprofile", set_load_profile_period_str, get_load_profile_period_str},
         {"rtc", set_rtc_time_str, get_rtc_time_str},
     };
+    static const struct {
+        const char *name;
+        meter_write_status_t (*run)(void);
+    } actions[] = {
+        {"defaults", reset_to_defaults},
+        {"clear_threshold", clear_threshold_history},
+        {"clear_reset", clear_reset_history},
+    };
     meter_write_status_t status = METER_WRITE_INVALID_VALUE;
     const char *saved = "";
-    bool known = strcmp(buffer, "defaults") == 0;
-    if (known) status = *value ? METER_WRITE_INVALID_VALUE : reset_to_defaults();
+    bool known = false;
+    for (size_t i = 0; i < sizeof(actions) / sizeof(actions[0]); i++)
+    {
+        if (strcmp(buffer, actions[i].name) != 0) continue;
+        known = true;
+        status = *value ? METER_WRITE_INVALID_VALUE : actions[i].run();
+        break;
+    }
     for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
     {
         if (strcmp(buffer, fields[i].name) != 0) continue;
@@ -765,53 +779,58 @@ done:
 }
 
 // --- Gecmis kayitlari silme (YENI, kullanicinin istegiyle eklendi) ---
-// Web sayfasindaki "Sil" butonlarindan (onay istedikten sonra) gonderilen
-// komutlarla cagriliyor.
-void clear_threshold_history(void)
+// Web sayfasindaki "Sil" butonlarindan onay ve sifreyle gonderilen
+// parameterWrite istegiyle cagrilir. Flash hatalari istemciye iletilir.
+meter_write_status_t clear_threshold_history(void)
 {
     const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, CUSTOM_PARTITION_SUBTYPE, PARTITION_LABEL_THRESHOLD_REC);
     if (part == NULL)
     {
         ESP_LOGE(TAG, "clear_threshold_history: threshold_rec partition bulunamadi");
-        return;
+        return METER_WRITE_STORAGE_ERROR;
     }
 
     if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) != pdTRUE)
     {
         ESP_LOGE(TAG, "clear_threshold_history: flash mutex alinamadi");
-        return;
+        return METER_WRITE_BUSY;
     }
-    esp_partition_erase_range(part, 0, part->size);
+    esp_err_t err = esp_partition_erase_range(part, 0, part->size);
     xSemaphoreGive(xFlashMutex);
+    if (err != ESP_OK) return METER_WRITE_STORAGE_ERROR;
 
     // th_flash_buf (RAM'deki sektor kopyasi) da temizlenmeli - aksi halde
     // bir sonraki writeThresholdRecord() flash'i yeni sildigimizi bilmeyip
     // eski RAM icerigini geri yazabilirdi (bkz. adc.c'deki ayni uyari).
     th_sector_data = 0;
-    updateThresholdSector(0);
+    err = updateThresholdSector(0);
     memset(th_flash_buf, 0, FLASH_SECTOR_SIZE);
+    if (err != ESP_OK) return METER_WRITE_PARTIAL;
 
     ESP_LOGI(TAG, "BLE: esik asim gecmisi silindi");
+    return METER_WRITE_OK;
 }
 
-void clear_reset_history(void)
+meter_write_status_t clear_reset_history(void)
 {
     const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, CUSTOM_PARTITION_SUBTYPE, PARTITION_LABEL_RESET_DATES);
     if (part == NULL)
     {
         ESP_LOGE(TAG, "clear_reset_history: reset_dates partition bulunamadi");
-        return;
+        return METER_WRITE_STORAGE_ERROR;
     }
 
     if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) != pdTRUE)
     {
         ESP_LOGE(TAG, "clear_reset_history: flash mutex alinamadi");
-        return;
+        return METER_WRITE_BUSY;
     }
-    esp_partition_erase_range(part, 0, part->size);
+    esp_err_t err = esp_partition_erase_range(part, 0, part->size);
     xSemaphoreGive(xFlashMutex);
+    if (err != ESP_OK) return METER_WRITE_STORAGE_ERROR;
 
     ESP_LOGI(TAG, "BLE: reset/acilis gecmisi silindi");
+    return METER_WRITE_OK;
 }
 
 // --- Bos bellek degistikce bildirim (YENI, kullanicinin istegiyle eklendi) ---

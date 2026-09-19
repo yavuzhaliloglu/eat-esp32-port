@@ -511,12 +511,11 @@ static int command_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         send_vrms_indication();
     } else if (strcmp((char *)buf, "LONG") == 0) {
         trigger_long_read();
-    } else if (strcmp((char *)buf, "RESET_DEFAULTS") == 0) {
-        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR; // Sifresiz toplu degisiklik de yasak.
-    } else if (strcmp((char *)buf, "CLEAR_THRESHOLD") == 0) {
-        clear_threshold_history();
-    } else if (strcmp((char *)buf, "CLEAR_RESET") == 0) {
-        clear_reset_history();
+    } else if (strcmp((char *)buf, "RESET_DEFAULTS") == 0 ||
+               strcmp((char *)buf, "CLEAR_THRESHOLD") == 0 ||
+               strcmp((char *)buf, "CLEAR_RESET") == 0) {
+        // Ayar sifirlama ve kayit silme yalnizca sifreli parameterWrite ile.
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
     } else if (strncmp((char *)buf, "LP:", 3) == 0) {
         trigger_load_profile_query(buf + 3, len - 3);
     } else {

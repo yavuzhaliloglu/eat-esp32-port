@@ -1,4 +1,4 @@
-const WEB_APP_VERSION = "10";
+const WEB_APP_VERSION = "1";
 document.getElementById("appVersion").textContent = "Web v" + WEB_APP_VERSION;
 
 // Sayfa/varliklarini onbellege alir ki internet olmadan yenilenince de
@@ -167,6 +167,7 @@ function askDevicePassword(message, action = "Onayla ve Kaydet") {
 const PARAMETER_LABELS = {
   threshold: "VRMS eşik değeri", calibration: "Kalibrasyon sabiti",
   loadprofile: "Yük profili periyodu", rtc: "Tarih / saat", defaults: "Varsayılan ayarlar",
+  clear_threshold: "Eşik aşım kayıtları", clear_reset: "Reset/açılış kayıtları",
   ota: "Firmware güncellemesi",
 };
 const PARAMETER_ERRORS = {
@@ -176,7 +177,7 @@ const PARAMETER_ERRORS = {
   RTC: "Tarih / saat RTC'ye yazılamadı veya doğrulanamadı.",
   BUSY: "Cihaz meşgul. Lütfen tekrar deneyin.",
   PARTIAL: "Sıfırlama tamamlanamadı; bazı ayarlar değişmiş olabilir. Güncel değerleri yeniden okuyun.",
-  FIELD: "Cihaz bu parametrenin değiştirilmesini desteklemiyor.",
+  FIELD: "Cihaz bu şifreli işlemi desteklemiyor. Cihaz yazılımını güncelleyip yeniden bağlanın.",
   FORMAT: "Cihaz değişiklik isteğini okuyamadı. Sayfayı yenileyip tekrar deneyin.",
 };
 
@@ -186,11 +187,13 @@ async function writeParameterWithPassword(field, value, message) {
   if (!parameterWriteChr) throw new Error("Şifreli işlem için cihaz yazılımını güncelleyin, ardından yeniden bağlanın.");
   parameterWritePending = true;
   const chr = parameterWriteChr;
+  const deletingHistory = field === "clear_threshold" || field === "clear_reset";
   let password = "", request;
   try {
     password = await askDevicePassword(message || (PARAMETER_LABELS[field] +
       (field === "defaults" ? " geri yüklenecek." : " → " + value)),
-      field === "ota" ? "Onayla ve Yükle" : "Onayla ve Kaydet");
+      field === "ota" ? "Onayla ve Yükle" : deletingHistory ? "Onayla ve Sil" :
+        field === "defaults" ? "Onayla ve Sıfırla" : "Onayla ve Kaydet");
     if (password === null) return null;
     if (!bleDevice?.gatt?.connected || chr !== parameterWriteChr) throw new Error("Cihaz bağlantısı kesildi.");
     request = encoder.encode(field + "\n" + password + "\n" + value);
@@ -203,6 +206,10 @@ async function writeParameterWithPassword(field, value, message) {
       let message = PARAMETER_ERRORS[result.substring(4)] || "Cihaz işlemi tamamlayamadı.";
       if (field === "ota" && result === "ERR:FIELD")
         message = "Bu firmware şifreli OTA desteklemiyor. Önce cihaz yazılımını USB üzerinden güncelleyin.";
+      if (deletingHistory && result === "ERR:STORAGE")
+        message = "Kayıtlar silinemedi; cihazın kalıcı belleğine erişilemedi. Kayıtları yeniden okuyun.";
+      if (deletingHistory && result === "ERR:PARTIAL")
+        message = "Silme tamamlanamadı; kayıtlar silinmiş ancak kayıt konumu kaydedilememiş olabilir. Kayıtları yeniden okuyun.";
       if (result.startsWith("ERR:OTA:")) message = "OTA başlatılamadı: " + result.slice(8).replace(/^ERROR:/, "");
       const error = new Error(message);
       error.deviceRejected = true;
@@ -995,8 +1002,8 @@ document.getElementById("backFromOta").addEventListener("click", () => {
   showView("view-menu");
 });
 
-/* --- Varsayılan ayarlara sıfırlama: ÖNCE ONAY İSTER, tıklayınca hemen
-   yapmaz. Başarılıysa açık olan ekrandaki (kısa/uzun) değerleri de tazeler. --- */
+/* --- Varsayılan ayarlara sıfırlama: onaydan sonra her defasında cihaz
+   şifresi ister. Başarılıysa kısa/uzun okuma değerlerini de tazeler. --- */
 btnResetDefaults.addEventListener("click", async () => {
   if (parameterWritePending) return;
   const ok = await askConfirm(
@@ -1005,7 +1012,8 @@ btnResetDefaults.addEventListener("click", async () => {
   if (!ok) return;
   clearError();
   try {
-    const result = await writeParameterWithPassword("defaults", "");
+    const result = await writeParameterWithPassword("defaults", "",
+      "Eşik değeri, kalibrasyon sabiti ve yük profili periyodunu varsayılanlara döndürmek için cihaz şifresini girin.");
     if (!result) return;
     try {
       await populateInfoFields("s-");
@@ -1020,33 +1028,33 @@ btnResetDefaults.addEventListener("click", async () => {
   }
 });
 
-/* --- Geçmiş kayıt silme: ikisi de ÖNCE ONAY İSTER, sonra ilgili komutu
-   gönderip Uzun Okuma ekranını tazeler. --- */
-document.getElementById("btnClearThreshold").addEventListener("click", async () => {
-  const ok = await askConfirm("Eşik aşım kayıtlarının tamamı silinecek. Bu işlem geri alınamaz. Devam edilsin mi?");
+/* --- Geçmiş kayıt silme: onay + her silmede cihaz şifresi. Cihazın başarı
+   yanıtından sonra Uzun Okuma yenilenir; şifresiz komuta geri dönülmez. --- */
+async function clearHistoryWithPassword(field) {
+  if (parameterWritePending) return;
+  const label = PARAMETER_LABELS[field];
+  const ok = await askConfirm(label + " tamamen silinecek. Bu işlem geri alınamaz. Devam edilsin mi?");
   if (!ok) return;
 
   clearError();
   try {
-    await sendCommand("CLEAR_THRESHOLD");
-    await readHistoryFull();
+    const result = await writeParameterWithPassword(field, "",
+      label + " tamamen silinecek. Silmek için cihaz şifresini girin.");
+    if (!result) return;
+    try {
+      await readHistoryFull();
+    } catch {
+      showToast("Kayıtlar silindi, ancak ekran yenilenemedi. Yenile düğmesine basın.");
+      return;
+    }
+    showToast("İşlem başarılı. " + label + " silindi.", true);
   } catch (err) {
-    showError("Silme hatası: " + err.message);
+    showToast(err.message || "Kayıtlar silinemedi.");
   }
-});
+}
 
-document.getElementById("btnClearReset").addEventListener("click", async () => {
-  const ok = await askConfirm("Reset/açılış kayıtlarının tamamı silinecek. Bu işlem geri alınamaz. Devam edilsin mi?");
-  if (!ok) return;
-
-  clearError();
-  try {
-    await sendCommand("CLEAR_RESET");
-    await readHistoryFull();
-  } catch (err) {
-    showError("Silme hatası: " + err.message);
-  }
-});
+document.getElementById("btnClearThreshold").addEventListener("click", () => clearHistoryWithPassword("clear_threshold"));
+document.getElementById("btnClearReset").addEventListener("click", () => clearHistoryWithPassword("clear_reset"));
 
 /* --- Bağlantı kurma / GATT keşfi (hem manuel butonla hem otomatik
    yeniden bağlanmada ortak kullanılıyor) --- */

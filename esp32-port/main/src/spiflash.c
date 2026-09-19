@@ -1152,12 +1152,12 @@ esp_err_t saveVRMSThresholdValue(uint16_t value)
     return err;
 }
 
-void updateThresholdSector(uint16_t sector_val)
+esp_err_t updateThresholdSector(uint16_t sector_val)
 {
     const esp_partition_t *threshold_prm_part = get_partition(PARTITION_LABEL_THRESHOLD_PRM);
     if (threshold_prm_part == NULL)
     {
-        return;
+        return ESP_ERR_NOT_FOUND;
     }
 
     uint16_t th_buf[2];
@@ -1167,14 +1167,16 @@ void updateThresholdSector(uint16_t sector_val)
     if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) == pdTRUE)
     {
         PRINTF("UPDATETHRESHOLDSECTOR: write flash mutex received\n");
-        esp_partition_erase_range(threshold_prm_part, 0, FLASH_SECTOR_SIZE);
-        esp_partition_write(threshold_prm_part, 0, th_buf, sizeof(th_buf));
+        esp_err_t err = esp_partition_erase_range(threshold_prm_part, 0, FLASH_SECTOR_SIZE);
+        if (err == ESP_OK) err = esp_partition_write(threshold_prm_part, 0, th_buf, sizeof(th_buf));
         xSemaphoreGive(xFlashMutex);
+        return err;
     }
     else
     {
         PRINTF("MUTEX CANNOT RECEIVED!\n");
         led_blink_pattern(LED_ERROR_CODE_FLASH_MUTEX_NOT_TAKEN, false);
+        return ESP_ERR_TIMEOUT;
     }
 }
 

@@ -112,13 +112,13 @@ bool free_heap_changed_since_last_check(void);
 
 /* --- Yonetim komutlari (YENI, kullanicinin istegiyle eklendi): web
  * sayfasindaki "Varsayilan Ayarlara Sifirla" ve gecmis kayit "Sil"
- * butonlarindan (ikisi de ONCE ONAY ISTIYOR) Meter Control'un komut
- * characteristic'i uzerinden tetikleniyor. --- */
+ * butonlarindan onay ve her islem icin cihaz sifresi alindiktan sonra
+ * Meter Control'un parameterWrite characteristic'iyle tetiklenir. --- */
 meter_write_status_t reset_to_defaults(void);
 // field\npassword\nvalue istegi; sifre yalnizca cihazda dogrulanir.
 void meter_write_parameter(const uint8_t *request, uint16_t len, char *response, size_t response_size, uint16_t conn_handle);
-void clear_threshold_history(void);
-void clear_reset_history(void);
+meter_write_status_t clear_threshold_history(void);
+meter_write_status_t clear_reset_history(void);
 
 /* nvs_flash_init() sonrasi bir kere cagrilir - yazilabilir alanlari NVS'ten
  * (varsa) okuyup RAM tamponlarina yukler, kalicilik saglar. */

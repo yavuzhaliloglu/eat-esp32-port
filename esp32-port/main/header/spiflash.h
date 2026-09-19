@@ -63,7 +63,8 @@ void SPIWriteToFlash(VRMS_VALUES_RECORD *vrms_values);
 void send_load_profile_records(uint8_t *buf);
 void checkSectorContent();
 void checkThresholdContent();
-void updateThresholdSector(uint16_t sector_val);
+// Kalici sektor guncellemesinin sonucunu dondurur (BLE silme onayi icin).
+esp_err_t updateThresholdSector(uint16_t sector_val);
 // BLE ayar yazmasi: kalici yazma basarili olduktan sonra RAM'i gunceller.
 esp_err_t saveVRMSThresholdValue(uint16_t value);
 // th_flash_buf'in tamamini (bir sektor) "threshold_rec" partition'ina yazar -

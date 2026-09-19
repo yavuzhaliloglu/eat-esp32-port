@@ -7,9 +7,9 @@
  * basarisiz olursa (gercekten offline) onbellege dus. Boylece gelistirme
  * sirasinda internet varken hep en son deploy edilen surum gorunur.
  */
-const CACHE_NAME = "mavi-alp-ble-v10";
+const CACHE_NAME = "mavi-alp-ble-v1";
 const ASSETS = [
-  "/", "/index.html", "/style.css?v=10", "/app.js?v=10", "/manifest.json",
+  "/", "/index.html", "/style.css?v=1", "/app.js?v=1", "/manifest.json",
   "/optimized_logo_2.svg", "/logo-new-full-transparent-bg.png",
 ];
 
