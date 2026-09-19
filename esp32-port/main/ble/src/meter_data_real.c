@@ -125,6 +125,7 @@ meter_write_status_t set_threshold_str(const uint8_t *data, uint16_t len)
         value = value * 10 + data[i] - '0';
     }
     esp_err_t err = saveVRMSThresholdValue((uint16_t)value);
+    if (err == ESP_ERR_INVALID_ARG) return METER_WRITE_INVALID_VALUE;
     if (err == ESP_ERR_TIMEOUT) return METER_WRITE_BUSY;
     return err == ESP_OK ? METER_WRITE_OK : METER_WRITE_STORAGE_ERROR;
 }
@@ -137,7 +138,9 @@ const char *get_calibration_str(void)
 
 meter_write_status_t set_calibration_str(const uint8_t *data, uint16_t len)
 {
-    char tmp[32];
+    // Kaydedilen metin, acilista kullanilan tamponla ayni sinira sahip olmali.
+    // Uzun girisi kesmek/yuvarlamak yerine ERR:VALUE ile reddet.
+    char tmp[sizeof(calibration_buf)];
     if (len == 0 || len >= sizeof(tmp) || memchr(data, '\0', len)) return METER_WRITE_INVALID_VALUE;
     copy_bounded(tmp, sizeof(tmp), data, len);
     char *end;
@@ -190,7 +193,7 @@ const char *get_baud_rate_str(void)
 
 void meter_data_load_from_nvs(void)
 {
-    char tmp[16];
+    char tmp[sizeof(calibration_buf)];
     tmp[0] = '\0';
     nvs_load_str("calibration", tmp, sizeof(tmp));
     if (tmp[0] != '\0')

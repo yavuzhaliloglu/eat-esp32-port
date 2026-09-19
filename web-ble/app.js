@@ -1,4 +1,4 @@
-const WEB_APP_VERSION = "9";
+const WEB_APP_VERSION = "10";
 document.getElementById("appVersion").textContent = "Web v" + WEB_APP_VERSION;
 
 // Sayfa/varliklarini onbellege alir ki internet olmadan yenilenince de
@@ -59,6 +59,8 @@ const OTA_CHUNK_SIZE = 200;
 // kavrami yok - yazilabilir birakmak, kullaniciya yaniltici bir kontrol
 // hissi veriyordu (firmware tarafinda da ayni sekilde salt okunura cevrildi).
 const EDITABLE_FIELDS = ["threshold", "calibration", "loadprofile", "rtc"];
+// ESP'nin kalibrasyon yazma ve acilista okuma tamponu: 15 karakter + NUL.
+const CALIBRATION_VALUE_MAX_LENGTH = 15;
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -169,7 +171,7 @@ const PARAMETER_LABELS = {
 };
 const PARAMETER_ERRORS = {
   PASSWORD: "Şifre yanlış. İşlem yapılmadı.",
-  VALUE: "Girilen değer geçersiz. Değeri ve biçimini kontrol edin.",
+  VALUE: "Invalid value. Girilen değer geçersiz; değeri ve biçimini kontrol edin.",
   STORAGE: "Cihazın kalıcı belleğine kaydedilemedi. Tekrar deneyin.",
   RTC: "Tarih / saat RTC'ye yazılamadı veya doğrulanamadı.",
   BUSY: "Cihaz meşgul. Lütfen tekrar deneyin.",
@@ -708,15 +710,20 @@ async function confirmEdit(prefix, field) {
   if (parameterWritePending) return;
   const input = document.getElementById("input-" + prefix + field);
   const value = input.value.trim();
-  if (!value) { showToast("Bir değer girin."); return; }
-  if (field === "threshold" && (!/^\d{1,3}$/.test(value) || Number(value) > 999)) {
-    showToast("VRMS eşik değeri 0–999 arasında tam sayı olmalı."); return;
+  if (!value) {
+    showToast(field === "threshold" || field === "calibration" ? PARAMETER_ERRORS.VALUE : "Bir değer girin.");
+    return;
+  }
+  if (field === "threshold" && (!/^\d{1,3}$/.test(value) || Number(value) < 1 || Number(value) > 999)) {
+    showToast("Invalid value. VRMS eşik değeri 1–999 arasında tam sayı olmalı."); return;
   }
   if (field === "loadprofile" && (!/^\d{1,3}$/.test(value) || Number(value) < 1 || Number(value) > 255)) {
     showToast("Yük profili periyodu 1–255 dakika arasında tam sayı olmalı."); return;
   }
-  if (field === "calibration" && (!Number.isFinite(Number(value)) || Number(value) <= 0)) {
-    showToast("Kalibrasyon sabiti sıfırdan büyük bir sayı olmalı."); return;
+  if (field === "calibration" && (value.length > CALIBRATION_VALUE_MAX_LENGTH ||
+      !Number.isFinite(Number(value)) || Number(value) <= 0)) {
+    showToast("Invalid value. Kalibrasyon sabiti sıfırdan büyük bir sayı olmalı ve en fazla " +
+      CALIBRATION_VALUE_MAX_LENGTH + " karakter içermeli."); return;
   }
   const button = document.getElementById("confirm-icon-" + prefix + field);
   button.disabled = true;

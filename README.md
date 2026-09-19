@@ -226,6 +226,14 @@ bildirim gösterilir; yanlış şifre, geçersiz değer ve yazma hataları kırm
 bildirimle gösterilir. Eski firmware ile okuma sürer, şifreli değişiklik için
 güncelleme istenir. Kayıt silme mevcut ayrı onay akışını kullanır.
 
+Eşik voltajı **1–999 V** arasında tam sayı olmalıdır; `0` kabul edilmez.
+Kalibrasyon sabiti sıfırdan büyük, sonlu ve en fazla **15 karakterlik** bir
+sayı olmalıdır (nokta ve varsa üs/işaret de bu sınıra dahildir). ESP ayrıca
+değerin float olarak ve okuma yanıtında temsil edilebildiğini doğrular.
+Geçersiz girişler kaydedilmez; web'de kırmızı **Invalid value** bildirimi
+gösterilir. Bu kontroller ESP tarafında da uygulanır; böylece yeniden
+başlatıldığında okunamayacak uzun bir kalibrasyon değeri kaydedilmez.
+
 Web sayfası ekran/menü tabanlı: Kısa Okuma, Uzun Okuma, Kart Durumu. Uzun Okuma ekranında ayrıca bir takvim var - flash'ta gerçekten veri olan günler aktif/tıklanabilir görünüyor, olmayanlar soluk kalıyor, bir gün (veya aralık) seçince RS485'teki gerçek `P.01(start;end)` sorgusunun BLE karşılığı çalışıp o aralığın verilerini gösteriyor.
 
 Yük profili sonuçları en fazla `24rem` yüksekliğindeki kaydırılabilir alanda
@@ -241,9 +249,9 @@ sayfası değiştirilerek elde edilemez.
 
 BLE'den gelen hiçbir veri `innerHTML` ile sayfaya eklenmiyor (hep `textContent`/DOM node) - eşleştirme olmadığı için sayacın adını taklit eden sahte bir cihaz kötü niyetli HTML/script gönderebilir, bunu kapatmak için. Sayfa PWA - bir kere internetle açılınca sonraki yenilemeler internet olmadan da çalışıyor.
 
-Web güncellemelerinde `index.html` içindeki `app.js?v=9` / `style.css?v=9`,
+Web güncellemelerinde `index.html` içindeki `app.js?v=10` / `style.css?v=10`,
 `app.js` içindeki `WEB_APP_VERSION` ve `sw.js` içindeki cache/asset sürümleri
-birlikte artırılır. Sayfanın altındaki “Web v9” yazısı yüklenen JavaScript
+birlikte artırılır. Sayfanın altındaki “Web v10” yazısı yüklenen JavaScript
 sürümünü gösterir. Service worker çevrimiçiyken HTTP önbelleğini sunucuyla
 doğrular; çevrimdışıyken uygulama önbelleğini kullanır.
 

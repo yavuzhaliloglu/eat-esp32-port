@@ -1133,7 +1133,8 @@ void checkThresholdContent()
 // "threshold_prm" partition (alongside the current threshold value)
 esp_err_t saveVRMSThresholdValue(uint16_t value)
 {
-    if (value > VRMS_THRESHOLD_MAX) return ESP_ERR_INVALID_ARG;
+    // Acilista getFlashContents() ile ayni aralik: 0 kalici bir esik degildir.
+    if (value == 0 || value > VRMS_THRESHOLD_MAX) return ESP_ERR_INVALID_ARG;
     const esp_partition_t *part = get_partition(PARTITION_LABEL_THRESHOLD_PRM);
     if (part == NULL) return ESP_ERR_NOT_FOUND;
     if (xSemaphoreTake(xFlashMutex, pdMS_TO_TICKS(250)) != pdTRUE) return ESP_ERR_TIMEOUT;
