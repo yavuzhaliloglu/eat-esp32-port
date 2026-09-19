@@ -32,7 +32,8 @@ esp32-meter-port/
     ├── style.css               Görünüm ve stiller
     ├── app.js                  Bluetooth bağlantısı ve arayüz davranışları
     ├── manifest.json / sw.js    PWA dosyaları
-    └── icon.svg
+    ├── optimized_logo_2.svg     Site ve uygulama ikonu
+    └── logo-new-full-transparent-bg.png  Header logosu
 ```
 
 `esp32-port/build/` klasörünü bilerek repoya koymadık (200MB+ derleme çıktısı, `idf.py build` ile yeniden üretiliyor).
@@ -68,7 +69,7 @@ Web sayfası:
 - HTTPS üzerinden servis edilmesi lazım (Web Bluetooth localhost hariç HTTP'ye izin vermiyor) - biz Vercel'e deploy ettik, GitHub Pages ya da benzeri statik bir hosting de olur
 - `web-ble/` statik dosyalardan oluşur; paket kurulumu veya build adımı yok
 - HTML `index.html`, stiller `style.css`, Bluetooth ve arayüz kodu `app.js` içinde
-- Yayınlarken altı dosyayı (`index.html`, `style.css`, `app.js`, `sw.js`, `manifest.json`, `icon.svg`) birlikte alan adının köküne yükle; yeni CSS/JS dosyaları da çevrimdışı önbelleğe dahildir
+- Yayınlarken `web-ble/` klasörünün tamamını alan adının köküne yükle; HTML, CSS, JS ve PWA dosyalarıyla birlikte `optimized_logo_2.svg` ve `logo-new-full-transparent-bg.png` de bulunmalıdır. Logo ve ikon da çevrimdışı önbelleğe dahildir.
 
 Her cihazın Bluetooth adı `esp32-port/main/header/project_conf.h` içindeki
 `DEVICE_BLE_NAME` ile belirlenir:
@@ -216,7 +217,7 @@ varsayılan ayarlara dönüş ve OTA güncellemesi, her işlemde cihaz şifresi 
 dosyalarında bulunmaz ve tarayıcıda saklanmaz. Eski şifresiz parametre yazma
 yolu kapalıdır. Okumalar şifresizdir; BLE eşleştirme kullanılmaz.
 
-Web **v8** ile güncel ESP firmware'i birlikte kullanılmalıdır. Meter Control
+Web **v8 ve sonrasındaki** şifreli işlemler için güncel ESP firmware'i kullanılmalıdır. Meter Control
 içindeki `00000630-5453-4554-2d45-4c422d52544d` alanına
 `alan\nşifre\ndeğer` yazılıp aynı alandan işlem sonucu okunur. Sonuç bağlantıya
 özeldir: başarıda `OK:alan\nkaydedilen_değer`, hatada `ERR:kod` döner. Şifre
@@ -240,9 +241,9 @@ sayfası değiştirilerek elde edilemez.
 
 BLE'den gelen hiçbir veri `innerHTML` ile sayfaya eklenmiyor (hep `textContent`/DOM node) - eşleştirme olmadığı için sayacın adını taklit eden sahte bir cihaz kötü niyetli HTML/script gönderebilir, bunu kapatmak için. Sayfa PWA - bir kere internetle açılınca sonraki yenilemeler internet olmadan da çalışıyor.
 
-Web güncellemelerinde `index.html` içindeki `app.js?v=8` / `style.css?v=8`,
+Web güncellemelerinde `index.html` içindeki `app.js?v=9` / `style.css?v=9`,
 `app.js` içindeki `WEB_APP_VERSION` ve `sw.js` içindeki cache/asset sürümleri
-birlikte artırılır. Sayfanın altındaki “Web v8” yazısı yüklenen JavaScript
+birlikte artırılır. Sayfanın altındaki “Web v9” yazısı yüklenen JavaScript
 sürümünü gösterir. Service worker çevrimiçiyken HTTP önbelleğini sunucuyla
 doğrular; çevrimdışıyken uygulama önbelleğini kullanır.
 

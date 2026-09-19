@@ -1,4 +1,4 @@
-const WEB_APP_VERSION = "8";
+const WEB_APP_VERSION = "9";
 document.getElementById("appVersion").textContent = "Web v" + WEB_APP_VERSION;
 
 // Sayfa/varliklarini onbellege alir ki internet olmadan yenilenince de

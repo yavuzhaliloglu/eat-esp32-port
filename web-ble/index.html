@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#184976">
 <link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/icon.svg">
-<title>Mavi Alp BLE İzleme</title>
-<link rel="stylesheet" href="/style.css?v=8">
+<link rel="icon" href="/optimized_logo_2.svg" type="image/svg+xml" sizes="any">
+<title>Mavi Alp - EAT BLE Sistemi</title>
+<link rel="stylesheet" href="/style.css?v=9">
 </head>
 <body>
 
-<div id="errorBox"></div>
+<div id="errorBox" role="alert"></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden>
   <span id="toastText"></span>
   <button id="toastClose" type="button" aria-label="Bildirimi kapat">×</button>
@@ -30,22 +30,68 @@
   </form>
 </dialog>
 
+<header class="brand-header">
+  <div class="brand-logo">
+    <img src="/logo-new-full-transparent-bg.png" alt="Mavi Alp" width="3956" height="1056">
+  </div>
+  <div class="brand-title">
+    <p>EAT BLE Sistemi</p>
+    <span>Bluetooth sayaç yönetimi</span>
+  </div>
+</header>
+
+<main>
 <!-- ================= ANA MENÜ ================= -->
 <div id="view-menu" class="view active">
-  <h1>Mavi Alp BLE İzleme</h1>
-  <p class="subtitle">Sayacına Bluetooth ile bağlanıp verileri görüntüle</p>
-
-  <div class="btn-row">
-    <button id="connectBtn">Cihaza Bağlan</button>
-    <button id="disconnectBtn">Bağlantıyı Kes</button>
+  <div class="page-intro">
+    <h1>Cihaz yönetimi</h1>
+    <p class="subtitle">Sayacınıza bağlanın, ölçümleri görüntüleyin ve ayarları yönetin.</p>
   </div>
-  <div id="status"><span class="status-dot" id="statusDot"></span><span id="statusText">Bağlı değil</span></div>
 
-  <button id="btnGoShort" class="menu-btn" disabled>Kısa Okuma</button>
-  <button id="btnGoLong" class="menu-btn secondary" disabled>Uzun Okuma</button>
-  <button id="btnGoStatus" class="menu-btn secondary" disabled>Kart Durumu</button>
-  <button id="btnGoOta" class="menu-btn secondary" disabled>Firmware Güncelleme</button>
-  <button id="btnResetDefaults" class="danger-btn" disabled>Varsayılan Ayarlara Sıfırla</button>
+  <section class="connection-card" aria-labelledby="connectionTitle">
+    <div class="connection-info">
+      <span class="connection-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="m7 7 10 10-5 4V3l5 4L7 17"/></svg>
+      </span>
+      <div class="connection-copy">
+        <h2 id="connectionTitle">Bluetooth bağlantısı</h2>
+        <div id="status" role="status"><span class="status-dot" id="statusDot" aria-hidden="true"></span><span id="statusText">Bağlı değil</span></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button id="connectBtn">Cihaza Bağlan</button>
+      <button id="disconnectBtn">Bağlantıyı Kes</button>
+    </div>
+  </section>
+
+  <h2 class="section-title">İşlemler</h2>
+  <div class="action-grid">
+    <button id="btnGoShort" class="menu-btn menu-action" disabled>
+      <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m13 3-9 11h7l-1 7 10-12h-8z"/></svg></span>
+      <span class="action-copy"><strong>Kısa Okuma</strong><span>Anlık ölçümler ve cihaz ayarları</span></span>
+      <svg class="action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+    </button>
+    <button id="btnGoLong" class="menu-btn menu-action" disabled>
+      <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 3v18h17M8 16v-4m5 4V7m5 9v-6"/></svg></span>
+      <span class="action-copy"><strong>Uzun Okuma</strong><span>Yük profili ve geçmiş kayıtlar</span></span>
+      <svg class="action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+    </button>
+    <button id="btnGoStatus" class="menu-btn menu-action" disabled>
+      <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 1v4m6-4v4M9 19v4m6-4v4M1 9h4m-4 6h4m14-6h4m-4 6h4M9 9h6v6H9z"/></svg></span>
+      <span class="action-copy"><strong>Kart Durumu</strong><span>Çalışma süresi ve sistem bilgileri</span></span>
+      <svg class="action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+    </button>
+    <button id="btnGoOta" class="menu-btn menu-action" disabled>
+      <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></svg></span>
+      <span class="action-copy"><strong>Firmware Güncelleme</strong><span>Cihaza yeni yazılım yükleyin</span></span>
+      <svg class="action-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+    </button>
+  </div>
+
+  <div class="settings-footer">
+    <p>Ayarları başlangıç değerlerine döndürmek için:</p>
+    <button id="btnResetDefaults" class="danger-btn" disabled>Varsayılan Ayarlara Sıfırla</button>
+  </div>
 </div>
 
 <!-- ================= ONAY PENCERESI (paylasilan, tum silme/sifirlama islemleri icin) ================= -->
@@ -166,7 +212,7 @@
   </div>
 
   <div class="card">
-    <h3>Kısa okumadaki her şey</h3>
+    <h3>Cihaz bilgileri ve ölçümler</h3>
 
     <div class="field-group">
       <div class="row"><span class="label">Seri no</span><span class="value" id="l-serial">—</span></div>
@@ -257,8 +303,8 @@
   </div>
 
   <div class="card">
-    <h3>Load Profile Sorgusu (Tarih Aralığı)</h3>
-    <p class="hint">Takvimden verinin bulunduğu (aktif) bir günü, ya da aralık için iki günü seç — modem/okuyucudaki gerçek "P.01" tarih sorgusunun BLE karşılığı.</p>
+    <h3>Yük profili</h3>
+    <p class="hint">Kayıtları görmek için takvimdeki renkli günlerden birini seçin. Tarih aralığı için başlangıç ve bitiş günlerine dokunun.</p>
     <div class="lp-cal-header">
       <button id="lpCalPrev" class="icon-btn" title="Önceki ay">‹</button>
       <span id="lpCalLabel">—</span>
@@ -274,14 +320,14 @@
   </div>
 
   <div class="card">
-    <h3>Eşik Aşım Kayıtları (10 slot)</h3>
+    <h3>Eşik aşım kayıtları <span class="record-count">10 kayıt</span></h3>
     <p class="hint">Gerilim, ayarlı eşiği kaç kere aştıysa, en son 10 tanesinin ne zaman ve ne kadar olduğu.</p>
     <div id="threshold-log">Henüz okunmadı</div>
     <button id="btnClearThreshold" class="danger-btn">Bu Kayıtları Sil</button>
   </div>
 
   <div class="card">
-    <h3>Reset / Açılış Kayıtları (12 slot)</h3>
+    <h3>Reset / Açılış kayıtları <span class="record-count">12 kayıt</span></h3>
     <p class="hint">Cihazın en son 12 kere ne zaman açıldığı / yeniden başladığı.</p>
     <p id="resetHistorySummary" class="hint" role="status"></p>
     <div id="reset-log">Henüz okunmadı</div>
@@ -342,8 +388,12 @@
   </div>
 </div>
 
-<p id="appVersion" class="app-version" aria-label="Web sürümü"></p>
-<script src="/app.js?v=8"></script>
+</main>
+<footer class="app-footer">
+  <span>Mavi Alp · EAT BLE Sistemi</span>
+  <span id="appVersion" class="app-version" aria-label="Web sürümü"></span>
+</footer>
+<script src="/app.js?v=9"></script>
 
 </body>
 </html>

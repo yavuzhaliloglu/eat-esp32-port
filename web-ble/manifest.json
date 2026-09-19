@@ -1,11 +1,11 @@
 {
-  "name": "Mavi Alp BLE İzleme",
-  "short_name": "Mavi Alp BLE",
+  "name": "Mavi Alp - EAT BLE Sistemi",
+  "short_name": "Mavi Alp EAT BLE",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f6f8",
-  "theme_color": "#2563eb",
+  "background_color": "#f3f6fa",
+  "theme_color": "#184976",
   "icons": [
-    { "src": "/icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "/optimized_logo_2.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }
